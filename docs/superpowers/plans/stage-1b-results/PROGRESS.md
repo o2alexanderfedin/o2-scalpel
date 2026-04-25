@@ -12,7 +12,7 @@ Author: AI Hive(R)
 | T3 | DeleteFile operation (recursive / ignoreIfNotExists) | submodule `70590841` | ✅ | — |
 | T4 | RenameFile option handling (overwrite / ignoreIfExists) | submodule `f63a59fb` | ✅ | — |
 | T5 | SnippetTextEdit defensive `$N`/`${N` stripper | submodule `5a58e5ea` | ✅ | — |
-| T6 | Order preservation (descending offset) | _pending_ | _pending_ | — |
+| T6 | Order preservation (descending offset) | submodule `b664c766` | ✅ | Test-only; T1 sort already covered contract |
 | T7 | changeAnnotations advisory surfacer | _pending_ | _pending_ | — |
 | T8 | Atomic snapshot + restore on partial failure | _pending_ | _pending_ | — |
 | T9 | Workspace-boundary path filter integration | _pending_ | _pending_ | — |
