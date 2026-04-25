@@ -1,0 +1,32 @@
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Rust (in case calcrs fixture or other Rust ends up here)
+target/
+Cargo.lock
+
+# Coverage / build
+htmlcov/
+.coverage
+dist/
+build/
+
+# Project-local
+.planning/
+.remember/
+.claude/

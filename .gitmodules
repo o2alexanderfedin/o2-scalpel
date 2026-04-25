@@ -1,0 +1,13 @@
+[submodule "vendor/serena"]
+	path = vendor/serena
+	url = https://github.com/o2alexanderfedin/serena.git
+	branch = main
+	ignore = dirty
+[submodule "vendor/claude-code-lsps-boostvolt"]
+	path = vendor/claude-code-lsps-boostvolt
+	url = https://github.com/o2alexanderfedin/claude-code-lsps.git
+	ignore = dirty
+[submodule "vendor/claude-code-lsps-piebald"]
+	path = vendor/claude-code-lsps-piebald
+	url = https://github.com/o2alexanderfedin/claude-code-lsps-piebald.git
+	ignore = dirty
