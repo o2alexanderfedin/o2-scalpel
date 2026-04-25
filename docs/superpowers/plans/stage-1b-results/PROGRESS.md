@@ -6,8 +6,8 @@ Author: AI Hive(R)
 
 | Task | Description | Branch SHA (submodule) | Outcome | Follow-up |
 |---|---|---|---|---|
-| T0 | Bootstrap feature branches + ledger | _in_progress_ | _pending_ | — |
-| T1 | TextDocumentEdit matrix (basic + multi-edit + version-checked) | _pending_ | _pending_ | — |
+| T0 | Bootstrap feature branches + ledger | parent `8d45aaf` | ✅ | — |
+| T1 | TextDocumentEdit matrix (basic + multi-edit + version-checked) | submodule `c14c9315` | OK | — |
 | T2 | CreateFile operation (overwrite / ignoreIfExists) | _pending_ | _pending_ | — |
 | T3 | DeleteFile operation (recursive / ignoreIfNotExists) | _pending_ | _pending_ | — |
 | T4 | RenameFile option handling (overwrite / ignoreIfExists) | _pending_ | _pending_ | — |
