@@ -17,7 +17,7 @@ Author: AI Hive(R)
 | T8 | Atomic snapshot + restore on partial failure | submodule `9f7f1044` | ✅ | — |
 | T9 | Workspace-boundary path filter integration | submodule `f04de716` | ✅ | — |
 | T10 | Inverse `WorkspaceEdit` computation | submodule `d31eb546` | ✅ | — |
-| T11 | `CheckpointStore` LRU(50) | _pending_ | _pending_ | — |
+| T11 | `CheckpointStore` LRU(50) | submodule `08dcd344` | ✅ | — |
 | T12 | `TransactionStore` LRU(20) | _pending_ | _pending_ | — |
 | T13 | Multi-shape integration test + rollback round-trip | _pending_ | _pending_ | — |
 | T14 | Submodule ff-merge to main + parent pointer bump + tag | _pending_ | _pending_ | — |
