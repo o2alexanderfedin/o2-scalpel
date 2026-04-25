@@ -23,7 +23,7 @@
 
 | # | Task | Status | Commit | Outcome / Notes |
 |---|---|---|---|---|
-| 1 | Bootstrap scaffolding + seed fixtures | ⏳ | — | — |
+| 1 | Bootstrap scaffolding + seed fixtures | ✅ | 63ecaf8 | scaffolding + seed fixtures committed |
 | 2 | Spike S1 — `$/progress` forwarding (BLOCKING) | ⏳ | — | — |
 | 3 | Spike S3 — `applyEdit` reverse-request (BLOCKING) | ⏳ | — | — |
 | 4 | Spike P1 — pylsp-rope unsaved buffer (BLOCKING) | ⏳ | — | — |
@@ -48,6 +48,7 @@
 | 2026-04-24 | Phase 0 executed via subagent-driven-development skill, serial dispatch (no parallel implementers). | Per skill rule: "Never dispatch multiple implementation subagents in parallel — conflicts." | All Phase 0 tasks |
 | 2026-04-24 | Feature branch `phase-0-pre-mvp-spikes` (git-flow), not worktree. | Project CLAUDE.md mandates git-flow; worktree is the superpowers default but project convention takes precedence. | All Phase 0 commits |
 | 2026-04-24 | Each spike test asserts `outcome` is truthy (always passes), not the optimistic outcome. | Spikes record evidence, not features. Failing the test would mean we couldn't continue; classifying A/B/C lets us proceed and feed Stage 1 design. | All spike tests |
+| 2026-04-24 | Task 1 spike scaffolding committed inside `vendor/serena` submodule (on `main` branch, writable, not detached); parent commit records the bumped submodule SHA `6c704f2b`. | Submodule was on writable `main` branch at task start, so files were committed there per plan rather than escalating. Parent commit only carries the submodule pointer + `.gitkeep` + this ledger. | Task 1 + future submodule-touching tasks |
 
 ## Problems / blockers log
 
