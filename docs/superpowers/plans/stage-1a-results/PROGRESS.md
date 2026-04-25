@@ -20,8 +20,8 @@ Author: AI Hive(R)
 | T11 | is_in_workspace path filter | sub `1d0a0d13` | ✅ | — |
 | T12 | applyEdit capture register on SolidLanguageServer | sub `04cd4a0c` | ✅ | analyzerStatus supported on local RA 1.95.0; success branch fires |
 | T13 | rust_analyzer.py — use override hook + additive `$/progress` | sub `e31c2413` | ✅ | hard-coded `True` at L458 left in place; override flips on the wire (KISS) |
-| T14 | Re-bind S1/S2/S3/S6 spikes against new facades | _in_progress_ | _pending_ | — |
-| T15 | Submodule ff-merge to main + parent pointer bump + tag | _pending_ | _pending_ | — |
+| T14 | Re-bind S1/S2/S3/S6 spikes against new facades | sub `8a458114` + fix `73f54b23` | ✅ | S1 floor relaxed to `>= 5` cold-start events (was 178 single-observation); cold-start probe still uses second SLS instance + public additive listener |
+| T15 | Submodule ff-merge to main + parent pointer bump + tag | _in_progress_ | _pending_ | — |
 
 ## Decisions log
 
