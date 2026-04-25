@@ -15,7 +15,7 @@ Author: AI Hive(R)
 | T6 | Order preservation (descending offset) | submodule `b664c766` | ✅ | Test-only; T1 sort already covered contract |
 | T7 | changeAnnotations advisory surfacer | submodule `7b2c9080` | ✅ | — |
 | T8 | Atomic snapshot + restore on partial failure | submodule `9f7f1044` | ✅ | — |
-| T9 | Workspace-boundary path filter integration | _pending_ | _pending_ | — |
+| T9 | Workspace-boundary path filter integration | submodule `f04de716` | ✅ | — |
 | T10 | Inverse `WorkspaceEdit` computation | _pending_ | _pending_ | — |
 | T11 | `CheckpointStore` LRU(50) | _pending_ | _pending_ | — |
 | T12 | `TransactionStore` LRU(20) | _pending_ | _pending_ | — |
