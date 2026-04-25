@@ -15,8 +15,8 @@ Author: AI Hive(R)
 | T6 | request_code_actions facade | sub `1f713d4c` | ✅ | NIT: no abs-path validation on `file` (Path.as_uri() raises ValueError on relative); docstring contracts it |
 | T7 | resolve_code_action facade | sub `b0052b86` | ✅ | — |
 | T8 | execute_command facade | sub `02a69685` | ✅ | — |
-| T9 | wait_for_indexing + indexing token classes | _in_progress_ | _pending_ | — |
-| T10 | override_initialize_params hook | _pending_ | _pending_ | — |
+| T9 | wait_for_indexing + indexing token classes | sub `f833a5e1` | ✅ | NIT: subclasses can extend `_INDEXING_TOKEN_PREFIXES` (will matter for Python adapters in Stage 1E) |
+| T10 | override_initialize_params hook | _in_progress_ | _pending_ | — |
 | T11 | is_in_workspace path filter | _pending_ | _pending_ | — |
 | T12 | applyEdit capture register on SolidLanguageServer | _pending_ | _pending_ | — |
 | T13 | rust_analyzer.py — use override hook + additive `$/progress` | _pending_ | _pending_ | — |
