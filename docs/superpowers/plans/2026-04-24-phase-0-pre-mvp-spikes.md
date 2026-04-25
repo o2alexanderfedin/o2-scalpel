@@ -210,6 +210,8 @@ if __name__ == "__main__":
 
 - [ ] **Step 7: Write the conftest with shared LSP wiring**
 
+> **API NOTE (verified against `vendor/serena/src/solidlsp/ls.py:717` and existing test patterns at `test/solidlsp/scala/test_scala_language_server.py:24`):** `SolidLanguageServer.start_server()` is a **synchronous** `@contextmanager` (it wraps `start()` + `stop()`); fixtures must be `pytest.fixture` (sync), not `pytest_asyncio.fixture`.
+
 ```python
 # vendor/serena/test/spikes/conftest.py
 """Shared fixtures for Phase 0 spikes.
@@ -220,13 +222,10 @@ not mocks.
 """
 from __future__ import annotations
 
-import asyncio
-import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, AsyncIterator
 
 import pytest
-import pytest_asyncio
 
 from solidlsp.ls import SolidLanguageServer
 from solidlsp.ls_config import Language, LanguageServerConfig
@@ -261,21 +260,23 @@ def write_spike_result(results_dir: Path, spike_id: str, body: str) -> Path:
     return out
 
 
-@pytest_asyncio.fixture
-async def rust_lsp(seed_rust_root: Path) -> AsyncIterator[SolidLanguageServer]:
+@pytest.fixture
+def rust_lsp(seed_rust_root: Path) -> Iterator[SolidLanguageServer]:
     cfg = LanguageServerConfig(language=Language.RUST)
     srv = SolidLanguageServer.create(cfg, str(seed_rust_root))
-    async with srv.start_session():
+    with srv.start_server():
         yield srv
 
 
-@pytest_asyncio.fixture
-async def python_lsp_pylsp(seed_python_root: Path) -> AsyncIterator[SolidLanguageServer]:
+@pytest.fixture
+def python_lsp_pylsp(seed_python_root: Path) -> Iterator[SolidLanguageServer]:
     cfg = LanguageServerConfig(language=Language.PYTHON)
     srv = SolidLanguageServer.create(cfg, str(seed_python_root))
-    async with srv.start_session():
+    with srv.start_server():
         yield srv
 ```
+
+> **API NOTE for spike test authors (Tasks 2–15):** the test bodies in this plan use illustrative method names like `request_code_actions`, `resolve_code_action`, `notify_did_change`, `notify_did_save`, `execute_command`, `request_rename`, `request_document_symbols`, `get_published_diagnostics`, `server.on_notification`, `server.on_request`. **Each spike implementer must verify each method exists on the actual `SolidLanguageServer` class before invoking it.** Spikes that probe gaps in the wrapper (S1, S3, S4, S5, S6 in particular) may need to open a temporary lower-level pathway — e.g., via `srv.server` (the underlying multilspy `LanguageServerHandler`) — rather than the high-level wrapper. If a wrapper method is missing, that's a Phase 0 finding worth recording in the spike's outcome doc, not a reason to fail the task. Use `grep -n "def request_\\|def notify_\\|def execute_" vendor/serena/src/solidlsp/ls.py` and read the underlying `solidlsp/lsp_protocol_handler/server.py` to discover the available API.
 
 - [ ] **Step 8: Add the spike-results dir keep-file**
 
