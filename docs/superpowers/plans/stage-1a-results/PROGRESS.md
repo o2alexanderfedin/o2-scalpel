@@ -6,9 +6,9 @@ Author: AI Hive(R)
 
 | Task | Description | Branch SHA (submodule) | Outcome | Follow-up |
 |---|---|---|---|---|
-| T0 | Bootstrap feature branches + ledger | _in_progress_ | _pending_ | — |
-| T1 | Multi-callback notification dispatch | _pending_ | _pending_ | — |
-| T2 | workspace/applyEdit capturing reverse-request handler | _pending_ | _pending_ | — |
+| T0 | Bootstrap feature branches + ledger | parent `5572def`, sub on branch | ✅ | — |
+| T1 | Multi-callback notification dispatch | sub `2cabdd49` | ✅ | NIT: multi-listener CancelledError early-returns rest of dispatch — acceptable cooperative-cancel semantics, document if it surfaces |
+| T2 | workspace/applyEdit capturing reverse-request handler | _in_progress_ | _pending_ | — |
 | T3 | workspace/configuration + client/registerCapability auto-responders | _pending_ | _pending_ | — |
 | T4 | window/showMessageRequest + window/workDoneProgress/create stubs | _pending_ | _pending_ | — |
 | T5 | workspace/{semanticTokens,diagnostic}/refresh auto-responders | _pending_ | _pending_ | — |
@@ -28,6 +28,9 @@ Author: AI Hive(R)
 - **2026-04-25**: Submodule not gitflow-initialized; use direct `git checkout -b feature/stage-1a-lsp-primitives` per Phase 0 convention. Same ff-merge-to-main pattern at T15.
 - **2026-04-25**: Adopt sibling-branch naming `feature/stage-1a-lsp-primitives` in both parent and submodule for traceability.
 - **2026-04-25**: Pre-existing `Cargo.lock` untracked file in `vendor/serena/test/spikes/seed_fixtures/calcrs_seed/` carried over from Phase 0; leave alone, it's a Cargo-build artifact.
+- **2026-04-25 (T1)**: Plan referenced class `LanguageServerHandler`; the actual class in `solidlsp/ls_process.py` is `LanguageServerProcess`. Plan amended in commit `ce2496d` (parent). Code uses correct name.
+- **2026-04-25 (T1)**: Code-quality reviewer flagged 3 dispatch-semantic regressions in T1's `_notification_handler` rewrite; restored in `2cabdd49` (sub): asyncio.CancelledError swallow, `_is_shutting_down` log gate, `Unhandled method` warning. Added 4 regression-pinning tests; spike suite stays 21/21 green with venv on PATH.
+- **2026-04-25 (test env)**: Submodule spike tests require venv on PATH (`pylsp`/`basedpyright` binaries); use `PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/`. Without this, P1/P2/P3/P3a/P4/P5a/P6 fail with `FileNotFoundError`.
 
 ## Spike outcome quick-reference
 
