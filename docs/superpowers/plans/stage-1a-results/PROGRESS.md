@@ -16,8 +16,8 @@ Author: AI Hive(R)
 | T7 | resolve_code_action facade | sub `b0052b86` | ✅ | — |
 | T8 | execute_command facade | sub `02a69685` | ✅ | — |
 | T9 | wait_for_indexing + indexing token classes | sub `f833a5e1` | ✅ | NIT: subclasses can extend `_INDEXING_TOKEN_PREFIXES` (will matter for Python adapters in Stage 1E) |
-| T10 | override_initialize_params hook | _in_progress_ | _pending_ | — |
-| T11 | is_in_workspace path filter | _pending_ | _pending_ | — |
+| T10 | override_initialize_params hook | sub `cff32adb` + fix `5e7f03c4` | ✅ | Implementer chose runtime monkey-patch of `self.server.send.initialize` in `__init__` (single chokepoint, transparent to all 30+ subclasses). Type-cast follow-up satisfies InitializeParams TypedDict |
+| T11 | is_in_workspace path filter | sub `1d0a0d13` | ✅ | — |
 | T12 | applyEdit capture register on SolidLanguageServer | _pending_ | _pending_ | — |
 | T13 | rust_analyzer.py — use override hook + additive `$/progress` | _pending_ | _pending_ | — |
 | T14 | Re-bind S1/S2/S3/S6 spikes against new facades | _pending_ | _pending_ | — |
