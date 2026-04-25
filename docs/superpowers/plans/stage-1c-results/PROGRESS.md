@@ -8,7 +8,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | Task | Description | Branch SHA (submodule) | Outcome | Follow-up |
 |---|---|---|---|---|
 | T0  | Bootstrap branches + ledger                                            | 8f0bcd1 | OK | — |
-| T1  | LspPoolKey frozen dataclass + Path.resolve canonicalisation            | _pending_ | _pending_ | — |
+| T1  | LspPoolKey frozen dataclass + Path.resolve canonicalisation            | 6cf71af1 | OK | — |
 | T2  | LspPool skeleton (acquire/release lazy spawn; per-key Lock)            | _pending_ | _pending_ | — |
 | T3  | Idle-shutdown reaper (O2_SCALPEL_LSP_IDLE_SHUTDOWN_SECONDS)            | _pending_ | _pending_ | — |
 | T4  | pool_pre_ping (workspace/symbol echo + spawn replacement)              | _pending_ | _pending_ | — |
