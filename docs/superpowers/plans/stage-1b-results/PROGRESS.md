@@ -14,7 +14,7 @@ Author: AI Hive(R)
 | T5 | SnippetTextEdit defensive `$N`/`${N` stripper | submodule `5a58e5ea` | ✅ | — |
 | T6 | Order preservation (descending offset) | submodule `b664c766` | ✅ | Test-only; T1 sort already covered contract |
 | T7 | changeAnnotations advisory surfacer | submodule `7b2c9080` | ✅ | — |
-| T8 | Atomic snapshot + restore on partial failure | _pending_ | _pending_ | — |
+| T8 | Atomic snapshot + restore on partial failure | submodule `9f7f1044` | ✅ | — |
 | T9 | Workspace-boundary path filter integration | _pending_ | _pending_ | — |
 | T10 | Inverse `WorkspaceEdit` computation | _pending_ | _pending_ | — |
 | T11 | `CheckpointStore` LRU(50) | _pending_ | _pending_ | — |
