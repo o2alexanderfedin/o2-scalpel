@@ -19,8 +19,8 @@ Author: AI Hive(R)
 | T10 | override_initialize_params hook | sub `cff32adb` + fix `5e7f03c4` | ✅ | Implementer chose runtime monkey-patch of `self.server.send.initialize` in `__init__` (single chokepoint, transparent to all 30+ subclasses). Type-cast follow-up satisfies InitializeParams TypedDict |
 | T11 | is_in_workspace path filter | sub `1d0a0d13` | ✅ | — |
 | T12 | applyEdit capture register on SolidLanguageServer | sub `04cd4a0c` | ✅ | analyzerStatus supported on local RA 1.95.0; success branch fires |
-| T13 | rust_analyzer.py — use override hook + additive `$/progress` | _in_progress_ | _pending_ | — |
-| T14 | Re-bind S1/S2/S3/S6 spikes against new facades | _pending_ | _pending_ | — |
+| T13 | rust_analyzer.py — use override hook + additive `$/progress` | sub `e31c2413` | ✅ | hard-coded `True` at L458 left in place; override flips on the wire (KISS) |
+| T14 | Re-bind S1/S2/S3/S6 spikes against new facades | _in_progress_ | _pending_ | — |
 | T15 | Submodule ff-merge to main + parent pointer bump + tag | _pending_ | _pending_ | — |
 
 ## Decisions log
