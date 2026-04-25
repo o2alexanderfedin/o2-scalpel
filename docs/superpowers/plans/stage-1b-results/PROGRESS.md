@@ -18,7 +18,7 @@ Author: AI Hive(R)
 | T9 | Workspace-boundary path filter integration | submodule `f04de716` | ✅ | — |
 | T10 | Inverse `WorkspaceEdit` computation | submodule `d31eb546` | ✅ | — |
 | T11 | `CheckpointStore` LRU(50) | submodule `08dcd344` | ✅ | — |
-| T12 | `TransactionStore` LRU(20) | _pending_ | _pending_ | — |
+| T12 | `TransactionStore` LRU(20) | submodule `13803b33` | ✅ | — |
 | T13 | Multi-shape integration test + rollback round-trip | _pending_ | _pending_ | — |
 | T14 | Submodule ff-merge to main + parent pointer bump + tag | _pending_ | _pending_ | — |
 
