@@ -10,7 +10,7 @@
 flowchart LR
     subgraph Stage1A_solidlsp["Stage 1A — vendor/serena/src/solidlsp"]
         ls["ls.py — SolidLanguageServer<br/>(facade methods + tap registry +<br/>workspace-boundary filter)"]
-        proc["ls_process.py — LanguageServerHandler<br/>(multi-callback dispatch +<br/>reverse-request auto-responders)"]
+        proc["ls_process.py — LanguageServerProcess<br/>(multi-callback dispatch +<br/>reverse-request auto-responders)"]
         srv["lsp_protocol_handler/server.py<br/>(message helpers — minor)"]
         ra["language_servers/rust_analyzer.py<br/>(capability-override hook usage +<br/>additive progress subscriptions)"]
         proc --> ls
@@ -44,7 +44,7 @@ Stage 1A is one subsystem (the `solidlsp` primitive layer). It produces working,
 | # | Path (under `vendor/serena/`) | Change | Responsibility |
 |---|---|---|---|
 | 1 | `src/solidlsp/ls.py` | Modify (+~330 LoC) | `SolidLanguageServer` facade methods: code-action wrappers, execute-command pass-through, `wait_for_indexing()`, capability-override hook, workspace-boundary filter, applyEdit capture register |
-| 2 | `src/solidlsp/ls_process.py` | Modify (+~140 LoC) | `LanguageServerHandler` multi-callback notification dispatch (`add_notification_listener` / `remove_notification_listener`), built-in reverse-request handlers for `workspace/applyEdit` (capturing), `workspace/configuration`, `client/registerCapability`/`unregisterCapability`, `window/showMessageRequest`, `window/workDoneProgress/create`, `workspace/{semanticTokens,diagnostic}/refresh` |
+| 2 | `src/solidlsp/ls_process.py` | Modify (+~140 LoC) | `LanguageServerProcess` multi-callback notification dispatch (`add_notification_listener` / `remove_notification_listener`), built-in reverse-request handlers for `workspace/applyEdit` (capturing), `workspace/configuration`, `client/registerCapability`/`unregisterCapability`, `window/showMessageRequest`, `window/workDoneProgress/create`, `workspace/{semanticTokens,diagnostic}/refresh` |
 | 3 | `src/solidlsp/lsp_protocol_handler/server.py` | Modify (+~10 LoC) | Add `make_response_with_error_data` helper for structured-error LSP responses; minor |
 | 4 | `src/solidlsp/language_servers/rust_analyzer.py` | Modify (+~20 LoC) | Replace hard-coded `experimental.snippetTextEdit: True` with `_override_initialize_params()` hook usage; replace `do_nothing` `$/progress` clobber with additive subscription using the new tap |
 | 5 | `test/spikes/test_stage_1a_*.py` | New (~270 LoC tests) | Unit + integration tests for every facade method, dispatched against rust-analyzer where end-to-end; pylsp adapter tests deferred to Stage 1E |
@@ -207,7 +207,7 @@ Expected: one new commit on `feature/stage-1a-lsp-primitives` in parent.
 
 ---
 
-### Task 1: Multi-callback notification dispatch on `LanguageServerHandler`
+### Task 1: Multi-callback notification dispatch on `LanguageServerProcess`
 
 **Files:**
 - Modify: `vendor/serena/src/solidlsp/ls_process.py:507-512` (replace `on_notification` single-dict with multi-listener)
@@ -235,19 +235,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from solidlsp.ls_process import LanguageServerHandler
+from solidlsp.ls_process import LanguageServerProcess
 
 
 @pytest.fixture
-def handler() -> LanguageServerHandler:
-    h = LanguageServerHandler.__new__(LanguageServerHandler)
+def handler() -> LanguageServerProcess:
+    h = LanguageServerProcess.__new__(LanguageServerProcess)
     h.on_notification_handlers = {}
     h.on_notification_listeners = {}
     h._listener_seq = 0
     return h
 
 
-def test_add_and_remove_listener_receive_payload(handler: LanguageServerHandler) -> None:
+def test_add_and_remove_listener_receive_payload(handler: LanguageServerProcess) -> None:
     a = MagicMock()
     b = MagicMock()
     ha = handler.add_notification_listener("$/progress", a)
@@ -261,7 +261,7 @@ def test_add_and_remove_listener_receive_payload(handler: LanguageServerHandler)
     b.assert_called_with({"value": 2})
 
 
-def test_legacy_on_notification_does_not_clobber_listeners(handler: LanguageServerHandler) -> None:
+def test_legacy_on_notification_does_not_clobber_listeners(handler: LanguageServerProcess) -> None:
     listener = MagicMock()
     primary = MagicMock()
     handler.add_notification_listener("$/progress", listener)
@@ -271,7 +271,7 @@ def test_legacy_on_notification_does_not_clobber_listeners(handler: LanguageServ
     primary.assert_called_once_with({"x": 1})
 
 
-def test_listener_exception_does_not_break_other_listeners(handler: LanguageServerHandler) -> None:
+def test_listener_exception_does_not_break_other_listeners(handler: LanguageServerProcess) -> None:
     bad = MagicMock(side_effect=RuntimeError("boom"))
     good = MagicMock()
     handler.add_notification_listener("$/progress", bad)
@@ -477,7 +477,7 @@ def pop_pending_apply_edits(self) -> list[dict[str, Any]]:
         return out
 ```
 
-Then, where `SolidLanguageServer` wires its `LanguageServerHandler` (find `self.server.on_request(`-style calls in `ls.py`; if none exist there yet, install during `start_server()`), register:
+Then, where `SolidLanguageServer` wires its `LanguageServerProcess` (find `self.server.on_request(`-style calls in `ls.py`; if none exist there yet, install during `start_server()`), register:
 
 ```python
 self.server.on_request("workspace/applyEdit", self._handle_workspace_apply_edit)
