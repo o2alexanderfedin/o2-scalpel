@@ -23,7 +23,7 @@
 
 | # | Task | Status | Commit | Outcome / Notes |
 |---|---|---|---|---|
-| 1 | Bootstrap scaffolding + seed fixtures | ✅ | 63ecaf8 | scaffolding + seed fixtures committed |
+| 1 | Bootstrap scaffolding + seed fixtures | ✅ | parent 4936ef8 / submod 32e7afdb | scaffolding + seed fixtures + sync conftest fix; both reviews ✅ |
 | 2 | Spike S1 — `$/progress` forwarding (BLOCKING) | ⏳ | — | — |
 | 3 | Spike S3 — `applyEdit` reverse-request (BLOCKING) | ⏳ | — | — |
 | 4 | Spike P1 — pylsp-rope unsaved buffer (BLOCKING) | ⏳ | — | — |
