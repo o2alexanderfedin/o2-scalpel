@@ -14,8 +14,8 @@ Author: AI Hive(R)
 | T5 | workspace/{semanticTokens,diagnostic}/refresh auto-responders | sub `b8b7bc4a` | ✅ | — |
 | T6 | request_code_actions facade | sub `1f713d4c` | ✅ | NIT: no abs-path validation on `file` (Path.as_uri() raises ValueError on relative); docstring contracts it |
 | T7 | resolve_code_action facade | sub `b0052b86` | ✅ | — |
-| T8 | execute_command facade | _in_progress_ | _pending_ | — |
-| T9 | wait_for_indexing + indexing token classes | _pending_ | _pending_ | — |
+| T8 | execute_command facade | sub `02a69685` | ✅ | — |
+| T9 | wait_for_indexing + indexing token classes | _in_progress_ | _pending_ | — |
 | T10 | override_initialize_params hook | _pending_ | _pending_ | — |
 | T11 | is_in_workspace path filter | _pending_ | _pending_ | — |
 | T12 | applyEdit capture register on SolidLanguageServer | _pending_ | _pending_ | — |
