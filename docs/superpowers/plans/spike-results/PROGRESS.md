@@ -25,7 +25,7 @@
 |---|---|---|---|---|
 | 1 | Bootstrap scaffolding + seed fixtures | ✅ | parent 4936ef8 / submod 32e7afdb | scaffolding + seed fixtures + sync conftest fix; both reviews ✅ |
 | 2 | Spike S1 — `$/progress` forwarding (BLOCKING) | ✅ | parent 1c54f367 / submod 3e24e449 | Outcome **A**: 140-180 `$/progress` events with 7 rich token classes (rustAnalyzer/Fetching, Building CrateGraph, Loading proc-macros, cachePriming, Roots Scanned, Building compile-time-deps, rust-analyzer/flycheck/N) reach the wrapper dispatcher. Public-API tap is clobbered by `rust_analyzer.py:720` `do_nothing` + single-callback dispatcher → +30 LoC shim required (plan §13 fallback). |
-| 3 | Spike S3 — `applyEdit` reverse-request (BLOCKING) | 🚧 | — | implementer dispatched |
+| 3 | Spike S3 — `applyEdit` reverse-request (BLOCKING) | ✅ | parent d4ad50a / submod 3b90edd3 | Outcome **B** (on calcrs_seed/lib.rs): rust-analyzer returns deferred-resolution actions; after `codeAction/resolve`, all 9 surfaced actions are `edit:`-typed (no `command:`-typed). 0 `workspace/applyEdit` reverse-requests fire. Minimal `{applied: true, failureReason: null}` stub sufficient on this fixture; re-verify in S4/S5/S6 with richer assist surfaces. Wrapper-gap finding: no `request_code_actions` / `resolve_code_action` / `execute_command` facade on `SolidLanguageServer`. |
 | 4 | Spike P1 — pylsp-rope unsaved buffer (BLOCKING) | ⏳ | — | — |
 | 5 | Spike P2 — organize-imports merge winner (BLOCKING) | ⏳ | — | — |
 | 6 | Spike P5a — pylsp-mypy stale-rate (BLOCKING) | ⏳ | — | — |
@@ -56,6 +56,8 @@
 | 2026-04-24 | `LanguageServerConfig` field is `code_language`, NOT `language`. Conftest fix folded into Task 2 submodule commit. | Task 1 conftest had `LanguageServerConfig(language=Language.RUST)` which raised `TypeError`. Verified canonical name at `src/solidlsp/ls_config.py:596` and confirmed in `test/solidlsp/scala/test_scala_language_server.py`. | Conftest + all future spike fixtures |
 | 2026-04-24 | **Wrapper `$/progress` plumbing requires a +30 LoC notification-tap shim** (plan §13 fallback). The dispatcher at `solidlsp/ls_process.py:507` is single-callback-per-method (last-write-wins); `rust_analyzer.py:720` pre-registers `do_nothing` for `$/progress` during `_start_server()`, swallowing 140-180 rich progress events per init. Public-API client taps registered after `start_server()` yields see 0 events. The JSON-RPC layer DOES forward all packets — only the dispatch surface is the bottleneck. | Discovered during S1 by wrapping `server._notification_handler` BEFORE `start()` on a second instance (probe 2). Outcome A confirmed with rich token set: rustAnalyzer/{Fetching, Building CrateGraph, Loading proc-macros, cachePriming, Roots Scanned, Building compile-time-deps}, rust-analyzer/flycheck/N. | Stage 1A `wait_for_indexing()` design + S2/S3/S4/S5/S6 spike implementers (same dispatcher pattern affects every notification-listening spike) |
 | 2026-04-24 | Spike tests on this host must `os.environ.setdefault("CARGO_BUILD_RUSTC", "rustc")` BEFORE booting rust-analyzer. | Host `~/.cargo/config.toml` has `[build] rustc = "rust-fv-driver"` which crashes on missing dylib (`librustc_driver-f9453740c55d2f61.dylib`), aborting `cargo metadata` during rust-analyzer's project-model load. Without the env override, `_start_server()` partially succeeds but emits 0 progress events. | All Rust spikes (S1-S6) |
+| 2026-04-24 | **rust-analyzer returns deferred-resolution code actions**: top-level `textDocument/codeAction` response carries only `{title, kind, data, group?}`; `command`/`edit` populate ONLY after `codeAction/resolve`. Stage 1A code-action flow MUST resolve before classifying `command:` vs `edit:`. | Discovered during S3: initial probe found 4 actions with neither `command` nor `edit` set; resolve step materialized `WorkspaceEdit` directly into the `edit` field for all 9 surfaced actions on the seed crate. Without resolve, every action would be misclassified. | Stage 1A code-action facade design + S2/S4/S5/S6 spike implementers |
+| 2026-04-24 | **Wrapper gap**: `SolidLanguageServer` exposes no facade for `textDocument/codeAction`, `codeAction/resolve`, or `workspace/executeCommand`. S3 test drops to `srv.server.send_request(...)` directly. | Verified by grep over `src/solidlsp/ls.py` — only `request_definition`/`request_references`/`request_document_symbols`/`request_rename_symbol_edit` etc. are exposed. The lower-level `LanguageServerRequest` (in `ls_request.py`) DOES have `code_action`/`resolve_code_action`/`execute_command`, so Stage 1A facade work is a thin wrapper-method addition, not a deeper plumbing change. | Stage 1A scope (facade methods) + S2/S4/S5/S6 spike implementers (must drop to `srv.server.send_request` or `srv.server.send.code_action(...)` for now) |
 
 ## Problems / blockers log
 
@@ -67,7 +69,7 @@
 |---|---|---|
 | S1 | A (with shim caveat) | +30 LoC (notification-tap shim per plan §13 fallback) |
 | S2 | — | — |
-| S3 | — | — |
+| S3 | B (with re-verify caveat) | -50 LoC vs. optimistic A (~+20 LoC stub instead of ~+80 LoC handler); pending S4/S5/S6 confirmation |
 | S4 | — | — |
 | S5 | — | — |
 | S6 | — | — |
