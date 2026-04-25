@@ -19,8 +19,19 @@ Author: AI Hive(R)
 | T10 | Inverse `WorkspaceEdit` computation | submodule `d31eb546` | ✅ | — |
 | T11 | `CheckpointStore` LRU(50) | submodule `08dcd344` | ✅ | — |
 | T12 | `TransactionStore` LRU(20) | submodule `13803b33` | ✅ | — |
-| T13 | Multi-shape integration test + rollback round-trip | submodule `2c5f830e` | ⚠️ DONE_WITH_CONCERNS | Latent bug surfaced — see entry below |
-| T14 | Submodule ff-merge to main + parent pointer bump + tag | _pending_ | _pending_ | — |
+| T13 | Multi-shape integration test + rollback round-trip | submodule `2c5f830e` + fix `ba7e62b1` | ✅ | T13 caught a latent T10 bug (`_full_file_overwrite` end-position past empty-file EOF). Fixed via geometry-independent INSERT-at-(0,0) helper; TextDocumentEdit inverse now 3-op `[Delete, Create, Insert]`; DeleteFile inverse now 2-op `[Create, Insert]`. T11/T12 test fixtures updated to match new shape. T1 fake buffer aligned with production `LSPFileBuffer.contents` mtime parity. |
+| T14 | Submodule ff-merge to main + parent pointer bump + tag | sub `ba7e62b1` (main) | ✅ | — |
+
+## Stage 1B — final verdict
+
+- All 15 tasks (T0–T14) complete.
+- Submodule `vendor/serena` main: `ba7e62b1`.
+- 130/130 spike-suite tests green: 14 Phase 0 spikes + 53 Stage 1A tests + 63 Stage 1B tests across T1–T13.
+- LoC delta in submodule: +2,612 / −8 across 17 files (3 new production files in `serena/refactoring/` — `__init__.py`, `checkpoints.py`, `transactions.py`; 1 modified production file `code_editor.py`; 13 new test files).
+- T13 surfaced and resolved a latent T10 inverse-edit bug (geometry-dependent end-position past empty file's EOF). Fix replaced `_full_file_overwrite` with geometry-independent INSERT-at-(0,0) helper.
+- T12 lock-ordering hardened beyond plan skeleton (eliminated latent deadlock between `TransactionStore._lock` and `CheckpointStore._lock`).
+
+**Stage 1C/1D entry approval**: PROCEED. Stage 1C (LSP pool + discovery) and Stage 1D (multi-server merge) are parallelizable post-1B per the plan index dependency graph.
 
 ## Decisions log
 
