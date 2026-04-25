@@ -25,7 +25,7 @@
 |---|---|---|---|---|
 | 1 | Bootstrap scaffolding + seed fixtures | ✅ | parent 4936ef8 / submod 32e7afdb | scaffolding + seed fixtures + sync conftest fix; both reviews ✅ |
 | 2 | Spike S1 — `$/progress` forwarding (BLOCKING) | ✅ | parent 1c54f367 / submod 3e24e449 | Outcome **A**: 140-180 `$/progress` events with 7 rich token classes (rustAnalyzer/Fetching, Building CrateGraph, Loading proc-macros, cachePriming, Roots Scanned, Building compile-time-deps, rust-analyzer/flycheck/N) reach the wrapper dispatcher. Public-API tap is clobbered by `rust_analyzer.py:720` `do_nothing` + single-callback dispatcher → +30 LoC shim required (plan §13 fallback). |
-| 3 | Spike S3 — `applyEdit` reverse-request (BLOCKING) | ⏳ | — | — |
+| 3 | Spike S3 — `applyEdit` reverse-request (BLOCKING) | 🚧 | — | implementer dispatched |
 | 4 | Spike P1 — pylsp-rope unsaved buffer (BLOCKING) | ⏳ | — | — |
 | 5 | Spike P2 — organize-imports merge winner (BLOCKING) | ⏳ | — | — |
 | 6 | Spike P5a — pylsp-mypy stale-rate (BLOCKING) | ⏳ | — | — |
