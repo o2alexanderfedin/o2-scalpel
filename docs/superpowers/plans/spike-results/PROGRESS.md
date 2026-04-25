@@ -26,7 +26,7 @@
 | 1 | Bootstrap scaffolding + seed fixtures | ✅ | parent 4936ef8 / submod 32e7afdb | scaffolding + seed fixtures + sync conftest fix; both reviews ✅ |
 | 2 | Spike S1 — `$/progress` forwarding (BLOCKING) | ✅ | parent 1c54f367 / submod 3e24e449 | Outcome **A**: 140-180 `$/progress` events with 7 rich token classes (rustAnalyzer/Fetching, Building CrateGraph, Loading proc-macros, cachePriming, Roots Scanned, Building compile-time-deps, rust-analyzer/flycheck/N) reach the wrapper dispatcher. Public-API tap is clobbered by `rust_analyzer.py:720` `do_nothing` + single-callback dispatcher → +30 LoC shim required (plan §13 fallback). |
 | 3 | Spike S3 — `applyEdit` reverse-request (BLOCKING) | ✅ | parent d4ad50a / submod 3b90edd3 | Outcome **B** (on calcrs_seed/lib.rs): rust-analyzer returns deferred-resolution actions; after `codeAction/resolve`, all 9 surfaced actions are `edit:`-typed (no `command:`-typed). 0 `workspace/applyEdit` reverse-requests fire. Minimal `{applied: true, failureReason: null}` stub sufficient on this fixture; re-verify in S4/S5/S6 with richer assist surfaces. Wrapper-gap finding: no `request_code_actions` / `resolve_code_action` / `execute_command` facade on `SolidLanguageServer`. |
-| 4 | Spike P1 — pylsp-rope unsaved buffer (BLOCKING) | ⏳ | — | — |
+| 4 | Spike P1 — pylsp-rope unsaved buffer (BLOCKING) | 🚧 | — | implementer dispatched |
 | 5 | Spike P2 — organize-imports merge winner (BLOCKING) | ⏳ | — | — |
 | 6 | Spike P5a — pylsp-mypy stale-rate (BLOCKING) | ⏳ | — | — |
 | 7 | Spike S2 — snippetTextEdit:false honored | ⏳ | — | — |
