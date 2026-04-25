@@ -19,7 +19,7 @@ Author: AI Hive(R)
 | T10 | Inverse `WorkspaceEdit` computation | submodule `d31eb546` | ✅ | — |
 | T11 | `CheckpointStore` LRU(50) | submodule `08dcd344` | ✅ | — |
 | T12 | `TransactionStore` LRU(20) | submodule `13803b33` | ✅ | — |
-| T13 | Multi-shape integration test + rollback round-trip | _pending_ | _pending_ | — |
+| T13 | Multi-shape integration test + rollback round-trip | submodule `2c5f830e` | ⚠️ DONE_WITH_CONCERNS | Latent bug surfaced — see entry below |
 | T14 | Submodule ff-merge to main + parent pointer bump + tag | _pending_ | _pending_ | — |
 
 ## Decisions log
@@ -29,6 +29,7 @@ Author: AI Hive(R)
 - **2026-04-25**: T1 version-check uses `getattr(ls, "get_open_file_version", lambda _p: None)(relative_path)` for graceful absence — implementer may need to verify the method exists on `SolidLanguageServer` and adjust.
 - **2026-04-25**: `_check_workspace_boundary` parses `O2_SCALPEL_WORKSPACE_EXTRA_PATHS` per-call via `os.environ.get` so test `monkeypatch.setenv` works. Negligible perf hit (one env read per op).
 - **2026-04-25**: `TransactionStore._evict_lru` cascades to `CheckpointStore.evict`. `CheckpointStore` never calls back into `TransactionStore` — directed dependency, safe. Lock dropped before cascade.
+- **2026-04-25**: T13 surfaced a latent production bug in `inverse_workspace_edit`/`_full_file_overwrite` (T10). The inverse of a `DeleteFile` emits `CreateFile(overwrite=True)` followed by a `TextDocumentEdit` whose end-position is computed from the **snapshot's** content geometry (e.g. `(1,0)` for `"deleted soon\n"`). When the inverse is applied, the freshly-created file is empty, so the synthesized end-position is past EOF and `TextUtils.get_index_from_line_col` raises `InvalidTextLocationError`. The end-of-file clamp comment in `_full_file_overwrite` is aspirational — neither the production `SolidLanguageServer.apply_text_edits_to_file` nor the test fake actually clamps. Fix needed: either (a) clamp end-position at apply time inside the buffer driver, or (b) emit the inverse for `DeleteFile` as a single `CreateFile`+content (write the snapshot during create, not via a separate full-file `TextDocumentEdit`). Test 1 (`test_complex_multi_shape_edit_then_checkpoint_restore`) is committed in failing state to document the bug; Test 2 (`test_three_sequential_edits_transaction_rollback`) passes — the simple TextDocumentEdit-only inverse round-trip composes correctly because both file states share identical geometry.
 
 ## Spike outcome carryover
 
