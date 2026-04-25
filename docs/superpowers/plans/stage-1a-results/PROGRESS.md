@@ -10,8 +10,8 @@ Author: AI Hive(R)
 | T1 | Multi-callback notification dispatch | sub `2cabdd49` | ✅ | NIT: multi-listener CancelledError early-returns rest of dispatch — acceptable cooperative-cancel semantics, document if it surfaces |
 | T2 | workspace/applyEdit capturing reverse-request handler | sub `a40cb08d` | ✅ | NIT: ApplyWorkspaceEditResponse `failureReason: None` (drop on next-touch — currently accepted by RA per S3) |
 | T3 | workspace/configuration + client/registerCapability auto-responders | sub `ae7f7946` | ✅ | NITs: register-cap doesn't honor watchers (OK at MVP); hoist `_ConcreteSLS` to conftest when T4/T5 land third copy |
-| T4 | window/showMessageRequest + window/workDoneProgress/create stubs | _in_progress_ | _pending_ | — |
-| T5 | workspace/{semanticTokens,diagnostic}/refresh auto-responders | _pending_ | _pending_ | — |
+| T4 | window/showMessageRequest + window/workDoneProgress/create stubs | sub `172294ae` | ✅ | T3-NIT folded in: `_ConcreteSLS` + `slim_sls` hoisted to conftest; T2 now uses thin `apply_edit_sls` wrapper |
+| T5 | workspace/{semanticTokens,diagnostic}/refresh auto-responders | _in_progress_ | _pending_ | — |
 | T6 | request_code_actions facade | _pending_ | _pending_ | — |
 | T7 | resolve_code_action facade | _pending_ | _pending_ | — |
 | T8 | execute_command facade | _pending_ | _pending_ | — |
