@@ -21,7 +21,18 @@ Author: AI Hive(R)
 | T12 | applyEdit capture register on SolidLanguageServer | sub `04cd4a0c` | ✅ | analyzerStatus supported on local RA 1.95.0; success branch fires |
 | T13 | rust_analyzer.py — use override hook + additive `$/progress` | sub `e31c2413` | ✅ | hard-coded `True` at L458 left in place; override flips on the wire (KISS) |
 | T14 | Re-bind S1/S2/S3/S6 spikes against new facades | sub `8a458114` + fix `73f54b23` | ✅ | S1 floor relaxed to `>= 5` cold-start events (was 178 single-observation); cold-start probe still uses second SLS instance + public additive listener |
-| T15 | Submodule ff-merge to main + parent pointer bump + tag | _in_progress_ | _pending_ | — |
+| T15 | Submodule ff-merge to main + parent pointer bump + tag | sub `73f54b23` (main) + parent `9d8b01a` | ✅ | — |
+
+## Stage 1A — final verdict
+
+- All 16 tasks (T0–T15) complete.
+- Submodule `vendor/serena` main: `73f54b23`.
+- Parent `feature/stage-1a-lsp-primitives` head: `9d8b01a`.
+- Tag (post-finish): `stage-1a-lsp-primitives-complete`.
+- 67/67 spike-suite tests green: 14 Phase 0 spikes (4 rebound onto Stage 1A facades) + 53 new Stage 1A tests across T1–T13.
+- LoC delta in submodule: +1,367 / −133 across 21 files (1 new test conftest fixture, 13 new test files for T1–T13, 4 rebound Phase 0 spikes, 3 production files modified — `ls.py`, `ls_process.py`, `language_servers/rust_analyzer.py`).
+
+**Stage 1B entry approval**: PROCEED. The applier upgrade (Stage 1B) consumes the workspace-boundary filter (T11), the WorkspaceEdit capture register (T2/T8), and the multi-shape `WorkspaceEdit` matrix from §4.1 row 5 of the scope report.
 
 ## Decisions log
 
