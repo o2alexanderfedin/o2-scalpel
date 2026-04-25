@@ -9,7 +9,7 @@ Author: AI Hive(R)
 | T0 | Bootstrap feature branches + ledger | parent `8d45aaf` | ✅ | — |
 | T1 | TextDocumentEdit matrix (basic + multi-edit + version-checked) | submodule `c14c9315` | OK | — |
 | T2 | CreateFile operation (overwrite / ignoreIfExists) | submodule `c5e44ccd` | ✅ | — |
-| T3 | DeleteFile operation (recursive / ignoreIfNotExists) | _pending_ | _pending_ | — |
+| T3 | DeleteFile operation (recursive / ignoreIfNotExists) | submodule `70590841` | ✅ | — |
 | T4 | RenameFile option handling (overwrite / ignoreIfExists) | _pending_ | _pending_ | — |
 | T5 | SnippetTextEdit defensive `$N`/`${N` stripper | _pending_ | _pending_ | — |
 | T6 | Order preservation (descending offset) | _pending_ | _pending_ | — |
