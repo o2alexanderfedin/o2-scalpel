@@ -14,5 +14,5 @@ Parent branch: `feature/stage-1g-primitive-tools`
 | T5 | ScalpelDryRunComposeTool                            | c089c286 | OK — 6/6 green | txn_ prefix added in tool layer (plan deviation) |
 | T6 | ScalpelRollbackTool + TransactionRollbackTool       | 07bd6627 | OK — 6/6 green | — |
 | T7 | ScalpelWorkspaceHealthTool                          | 660b3be5 | OK — 6/6 green | CapabilityCatalog.hash() to be added in Stage 1F follow-up |
-| T8 | ScalpelExecuteCommandTool                           | _pending_ | _pending_ | — |
+| T8 | ScalpelExecuteCommandTool                           | 1faf394c | OK — 5/5 green | broadcast() kwargs= sig adapted (plan deviation) |
 | T9 | __init__ re-export + smoke + ff-merge + tag         | _pending_ | _pending_ | — |
