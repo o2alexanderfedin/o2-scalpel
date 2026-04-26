@@ -1273,11 +1273,516 @@ Update parent ledger and commit.
 
 ### Task 5: `basedpyright_server.py` adapter — pull-mode diagnostic
 
-_(T5 detail expanded below.)_
+**Files:**
+- Create: `vendor/serena/src/solidlsp/language_servers/basedpyright_server.py`
+- Create: `vendor/serena/test/spikes/test_stage_1e_t5_basedpyright_pull_mode.py`
+
+**Phase 0 P4 contract:** basedpyright 1.39.3 emits ZERO `textDocument/publishDiagnostics` notifications. After `initialized` it dynamically registers `textDocument/diagnostic` via `client/registerCapability`; consumers MUST PULL diagnostics. The base class auto-responder for `client/registerCapability` already returns `null` (correct ACK per LSP spec) — no override needed. T5's net new work: (a) subprocess launch using `basedpyright-langserver --stdio`, (b) version-pin assertion (`1.39.3`), (c) a small `request_pull_diagnostics(uri)` facade method that calls `textDocument/diagnostic` and returns the `RelatedFullDocumentDiagnosticReport.items`, (d) a small `did_change_text_document(uri, text)` helper that BOTH sends `didChange` AND immediately pulls — the natural call site for `MultiServerCoordinator` to gather basedpyright's view after every edit.
+
+- [ ] **Step 1: Write failing tests — adapter exists, version pin, pull-mode**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t5_basedpyright_pull_mode.py`:
+
+```python
+"""T5 — BasedpyrightServer adapter (pull-mode diagnostic, P4 contract)."""
+
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+
+import pytest
+
+BP_AVAILABLE = shutil.which("basedpyright-langserver") is not None or os.environ.get("CI") == "true"
+
+
+def test_basedpyright_server_imports() -> None:
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer  # noqa: F401
+
+
+def test_basedpyright_subclasses_solid_language_server() -> None:
+    from solidlsp.ls import SolidLanguageServer
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+
+    assert issubclass(BasedpyrightServer, SolidLanguageServer)
+
+
+def test_basedpyright_version_pin_constant() -> None:
+    """Adapter declares the exact pin per Phase 0 Q3."""
+    from solidlsp.language_servers.basedpyright_server import BASEDPYRIGHT_VERSION_PIN
+
+    assert BASEDPYRIGHT_VERSION_PIN == "1.39.3"
+
+
+def test_basedpyright_request_pull_diagnostics_signature() -> None:
+    """Pull-mode facade method exists with the correct shape (no boot)."""
+    import inspect
+
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+
+    assert hasattr(BasedpyrightServer, "request_pull_diagnostics")
+    sig = inspect.signature(BasedpyrightServer.request_pull_diagnostics)
+    assert "uri" in sig.parameters
+
+
+@pytest.mark.skipif(not BP_AVAILABLE, reason="basedpyright-langserver not installed")
+def test_basedpyright_boots_and_pulls_diagnostics(tmp_path: Path) -> None:
+    """Real-LSP boot smoke: P4 pull-mode produces non-empty diagnostics."""
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+    from solidlsp.ls_config import LanguageServerConfig, Language
+    from solidlsp.settings import SolidLSPSettings
+
+    bad = tmp_path / "bad.py"
+    bad.write_text("def f(x: int) -> int:\n    return x + 'oops'\n")
+
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = BasedpyrightServer(cfg, str(tmp_path), SolidLSPSettings())
+    with srv.start_server():
+        srv.open_text_document("bad.py")
+        report = srv.request_pull_diagnostics(uri=(tmp_path / "bad.py").as_uri())
+        # Pull report contains items[]; with our deliberate type error, ≥1.
+        items = report.get("items", []) if isinstance(report, dict) else []
+        assert items, f"basedpyright PULL must surface ≥1 diagnostic; got {report!r}"
+        assert any("basedpyright" in str(d.get("source", "")).lower() or
+                   "Pyright" in str(d.get("source", "")) for d in items), items
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t5_basedpyright_pull_mode.py -v
+```
+
+Expected: 4/5 FAIL on import; the boot test SKIPs (or FAILs if basedpyright is installed without the adapter).
+
+- [ ] **Step 2: Write minimal implementation**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/solidlsp/language_servers/basedpyright_server.py`:
+
+```python
+"""basedpyright adapter — Stage 1E §14.1 file 16.
+
+Phase 0 P4 contract:
+  - basedpyright 1.39.3 (Phase 0 Q3 pin) is PULL-mode only — emits ZERO
+    publishDiagnostics. Consumers must call ``textDocument/diagnostic``.
+  - basedpyright BLOCKS on server→client requests if unanswered. The base
+    ``_install_default_request_handlers`` already auto-responds to
+    workspace/configuration (→ ``[{} for _ in items]``),
+    client/registerCapability (→ null), client/unregisterCapability (→ null),
+    window/workDoneProgress/create (→ null), so this adapter does NOT need
+    to override any handler.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import pathlib
+from typing import Any, cast
+
+from overrides import override
+
+from solidlsp.ls import SolidLanguageServer
+from solidlsp.ls_config import LanguageServerConfig
+from solidlsp.lsp_protocol_handler.lsp_types import InitializeParams
+from solidlsp.lsp_protocol_handler.server import ProcessLaunchInfo
+from solidlsp.settings import SolidLSPSettings
+
+log = logging.getLogger(__name__)
+
+BASEDPYRIGHT_VERSION_PIN: str = "1.39.3"  # Phase 0 Q3.
+
+
+class BasedpyrightServer(SolidLanguageServer):
+    """basedpyright-langserver adapter — pull-mode diagnostics."""
+
+    def __init__(
+        self,
+        config: LanguageServerConfig,
+        repository_root_path: str,
+        solidlsp_settings: SolidLSPSettings,
+    ) -> None:
+        super().__init__(
+            config,
+            repository_root_path,
+            ProcessLaunchInfo(
+                cmd="basedpyright-langserver --stdio",
+                cwd=repository_root_path,
+            ),
+            "python",
+            solidlsp_settings,
+        )
+
+    @override
+    def is_ignored_dirname(self, dirname: str) -> bool:
+        return super().is_ignored_dirname(dirname) or dirname in (
+            "venv",
+            ".venv",
+            "__pycache__",
+            ".tox",
+            ".mypy_cache",
+            ".ruff_cache",
+        )
+
+    @staticmethod
+    def _get_initialize_params(repository_absolute_path: str) -> InitializeParams:
+        root_uri = pathlib.Path(repository_absolute_path).as_uri()
+        params: dict[str, Any] = {
+            "processId": os.getpid(),
+            "clientInfo": {"name": "Serena", "version": "0.1.0"},
+            "locale": "en",
+            "rootPath": repository_absolute_path,
+            "rootUri": root_uri,
+            "capabilities": {
+                "workspace": {
+                    "configuration": True,
+                    "didChangeConfiguration": {"dynamicRegistration": True},
+                    # P4: basedpyright dynamically registers
+                    # textDocument/diagnostic via client/registerCapability —
+                    # we accept this passively (base auto-responder).
+                    "diagnostics": {"refreshSupport": True, "relatedDocumentSupport": True},
+                },
+                "textDocument": {
+                    "synchronization": {
+                        "dynamicRegistration": True,
+                        "didSave": True,
+                        "willSave": False,
+                        "willSaveWaitUntil": False,
+                    },
+                    # Pull-mode opt-in.
+                    "diagnostic": {
+                        "dynamicRegistration": True,
+                        "relatedDocumentSupport": True,
+                    },
+                    "publishDiagnostics": {
+                        # We still advertise — basedpyright never sends, but
+                        # downgrading the capability would surprise other
+                        # clients sharing this base class.
+                        "relatedInformation": True,
+                    },
+                },
+                "window": {"workDoneProgress": True},
+            },
+            "initializationOptions": {
+                "python": {
+                    # T8 will set this to the resolved interpreter via
+                    # configure_python_path(); blank here is fine — pyright
+                    # falls back to sys.executable.
+                    "pythonPath": "",
+                },
+            },
+            "workspaceFolders": [
+                {"uri": root_uri, "name": pathlib.Path(repository_absolute_path).name}
+            ],
+        }
+        return cast(InitializeParams, params)
+
+    # ------------------------------------------------------------------
+    # P4 pull-mode facade.
+    # ------------------------------------------------------------------
+
+    def request_pull_diagnostics(self, uri: str) -> dict[str, Any]:
+        """Send ``textDocument/diagnostic`` and return the response.
+
+        Per LSP §3.17 ``textDocument/diagnostic`` returns a
+        ``RelatedFullDocumentDiagnosticReport`` (kind=full + items[]) or a
+        ``RelatedUnchangedDocumentDiagnosticReport`` (kind=unchanged +
+        resultId). Caller inspects ``kind``; on ``unchanged`` reuse the
+        previous items.
+
+        :param uri: file URI of the document to diagnose.
+        :return: the raw response dict from basedpyright.
+        """
+        params = {"textDocument": {"uri": uri}}
+        response = self.server.send_request("textDocument/diagnostic", params)
+        return cast(dict[str, Any], response or {})
+
+    def configure_python_path(self, python_path: str) -> None:
+        """Push the resolved interpreter into basedpyright via didChangeConfiguration.
+
+        T8 calls this once after the 14-step interpreter discovery resolves.
+        Sent post-initialize because pythonPath in initializationOptions does
+        not always re-trigger workspace re-analysis on basedpyright 1.39.3.
+        """
+        notif = {
+            "settings": {"python": {"pythonPath": python_path}},
+        }
+        self.server.send_notification("workspace/didChangeConfiguration", notif)
+```
+
+- [ ] **Step 3: Re-run tests, expect green**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t5_basedpyright_pull_mode.py -v
+```
+
+Expected: 4 import/identity tests PASS; boot test PASSES if basedpyright is installed.
+
+- [ ] **Step 4: Commit T5**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/solidlsp/language_servers/basedpyright_server.py test/spikes/test_stage_1e_t5_basedpyright_pull_mode.py
+git commit -m "$(cat <<'EOF'
+stage-1e(t5): BasedpyrightServer adapter — P4 pull-mode diagnostic
+
+basedpyright 1.39.3 (Q3 pin) emits ZERO publishDiagnostics; adapter
+exposes request_pull_diagnostics(uri) that calls textDocument/diagnostic
+and returns the RelatedFullDocumentDiagnosticReport. configure_python_path
+pushes the T8-resolved interpreter via didChangeConfiguration. Base
+auto-responder already handles workspace/configuration / registerCapability
+/ workDoneProgress/create — no override needed.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T5
+```
+
+Update parent ledger and commit.
 
 ### Task 6: `ruff_server.py` adapter
 
-_(T6 detail expanded below.)_
+**Files:**
+- Create: `vendor/serena/src/solidlsp/language_servers/ruff_server.py`
+- Create: `vendor/serena/test/spikes/test_stage_1e_t6_ruff_server.py`
+
+ruff's native LSP (`ruff server`, ≥0.6.0) speaks standard LSP and pushes diagnostics — no pull-mode, no version-pin assertion (Phase 0 had no Q for ruff). The adapter is the simplest of the three: spawn, initialize, advertise codeAction support for `quickfix` + `source.organizeImports` + `source.fixAll.ruff`. Per Phase 0 P2, ruff wins `source.organizeImports` at the merge layer; the adapter does not need to know about that — the priority lives in `multi_server.py`.
+
+- [ ] **Step 1: Write failing tests**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t6_ruff_server.py`:
+
+```python
+"""T6 — RuffServer adapter (native ruff server, push-mode diagnostics)."""
+
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+
+import pytest
+
+RUFF_AVAILABLE = shutil.which("ruff") is not None or os.environ.get("CI") == "true"
+
+
+def test_ruff_server_imports() -> None:
+    from solidlsp.language_servers.ruff_server import RuffServer  # noqa: F401
+
+
+def test_ruff_subclasses_solid_language_server() -> None:
+    from solidlsp.ls import SolidLanguageServer
+    from solidlsp.language_servers.ruff_server import RuffServer
+
+    assert issubclass(RuffServer, SolidLanguageServer)
+
+
+def test_ruff_advertises_organize_imports_kind() -> None:
+    """Initialize params declare codeAction support for source.organizeImports."""
+    from solidlsp.language_servers.ruff_server import RuffServer
+
+    params = RuffServer._get_initialize_params("/tmp/anywhere")
+    cak = (
+        params["capabilities"]["textDocument"]["codeAction"]
+        ["codeActionLiteralSupport"]["codeActionKind"]["valueSet"]
+    )
+    assert "source.organizeImports" in cak
+    assert "quickfix" in cak
+    assert "source.fixAll" in cak
+
+
+@pytest.mark.skipif(not RUFF_AVAILABLE, reason="ruff not installed")
+def test_ruff_boots_and_offers_organize_imports(tmp_path: Path) -> None:
+    """Real-LSP boot smoke: ruff offers source.organizeImports on a messy file."""
+    from solidlsp.language_servers.ruff_server import RuffServer
+    from solidlsp.ls_config import LanguageServerConfig, Language
+    from solidlsp.settings import SolidLSPSettings
+
+    src = tmp_path / "messy.py"
+    # Imports out of order + unused — ruff will offer organize + remove-unused.
+    src.write_text(
+        "import sys\n"
+        "import os\n"
+        "from typing import Any, Dict\n"
+        "print(os.getcwd())\n"
+    )
+
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = RuffServer(cfg, str(tmp_path), SolidLSPSettings())
+    with srv.start_server():
+        srv.open_text_document("messy.py")
+        actions = srv.request_code_actions(
+            "messy.py",
+            start={"line": 0, "character": 0},
+            end={"line": 3, "character": 0},
+            only=["source.organizeImports"],
+        )
+        assert actions, f"ruff must offer source.organizeImports; got {actions}"
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t6_ruff_server.py -v
+```
+
+Expected: 3 tests FAIL on `ModuleNotFoundError`; boot test FAILs or SKIPs.
+
+- [ ] **Step 2: Write minimal implementation**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/solidlsp/language_servers/ruff_server.py`:
+
+```python
+"""ruff native LSP adapter — Stage 1E §14.1 file 17.
+
+ruff ≥0.6.0 ships a native LSP (``ruff server``) that pushes diagnostics
+in standard LSP shape; no pull-mode. Per Phase 0 P2, ruff wins
+``source.organizeImports`` at the merge layer — adapter does not need to
+know; priority lives in ``multi_server.py``.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import pathlib
+from typing import Any, cast
+
+from overrides import override
+
+from solidlsp.ls import SolidLanguageServer
+from solidlsp.ls_config import LanguageServerConfig
+from solidlsp.lsp_protocol_handler.lsp_types import InitializeParams
+from solidlsp.lsp_protocol_handler.server import ProcessLaunchInfo
+from solidlsp.settings import SolidLSPSettings
+
+log = logging.getLogger(__name__)
+
+
+class RuffServer(SolidLanguageServer):
+    """ruff native LSP adapter (push-mode diagnostics)."""
+
+    def __init__(
+        self,
+        config: LanguageServerConfig,
+        repository_root_path: str,
+        solidlsp_settings: SolidLSPSettings,
+    ) -> None:
+        super().__init__(
+            config,
+            repository_root_path,
+            ProcessLaunchInfo(cmd="ruff server", cwd=repository_root_path),
+            "python",
+            solidlsp_settings,
+        )
+
+    @override
+    def is_ignored_dirname(self, dirname: str) -> bool:
+        return super().is_ignored_dirname(dirname) or dirname in (
+            "venv",
+            ".venv",
+            "__pycache__",
+            ".tox",
+            ".mypy_cache",
+            ".ruff_cache",
+        )
+
+    @staticmethod
+    def _get_initialize_params(repository_absolute_path: str) -> InitializeParams:
+        root_uri = pathlib.Path(repository_absolute_path).as_uri()
+        params: dict[str, Any] = {
+            "processId": os.getpid(),
+            "clientInfo": {"name": "Serena", "version": "0.1.0"},
+            "locale": "en",
+            "rootPath": repository_absolute_path,
+            "rootUri": root_uri,
+            "capabilities": {
+                "workspace": {
+                    "configuration": True,
+                    "didChangeConfiguration": {"dynamicRegistration": True},
+                },
+                "textDocument": {
+                    "synchronization": {
+                        "dynamicRegistration": True,
+                        "didSave": True,
+                    },
+                    "publishDiagnostics": {
+                        "relatedInformation": True,
+                        "tagSupport": {"valueSet": [1, 2]},
+                        "codeDescriptionSupport": True,
+                    },
+                    "codeAction": {
+                        "dynamicRegistration": True,
+                        "isPreferredSupport": True,
+                        "disabledSupport": True,
+                        "dataSupport": True,
+                        "resolveSupport": {"properties": ["edit"]},
+                        "codeActionLiteralSupport": {
+                            "codeActionKind": {
+                                "valueSet": [
+                                    "",
+                                    "quickfix",
+                                    "source",
+                                    "source.organizeImports",
+                                    "source.fixAll",
+                                ]
+                            }
+                        },
+                    },
+                },
+            },
+            "workspaceFolders": [
+                {"uri": root_uri, "name": pathlib.Path(repository_absolute_path).name}
+            ],
+        }
+        return cast(InitializeParams, params)
+```
+
+- [ ] **Step 3: Re-run tests, expect green**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t6_ruff_server.py -v
+```
+
+Expected: 3 PASS + boot PASS (or SKIP if ruff absent).
+
+- [ ] **Step 4: Cross-check all three Python adapters compile + import together**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/python -c "
+from solidlsp.language_servers.pylsp_server import PylspServer
+from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+from solidlsp.language_servers.ruff_server import RuffServer
+print('all three import')
+"
+```
+
+Expected: `all three import`. If any fail, fix the offending adapter before T7.
+
+- [ ] **Step 5: Commit T6**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/solidlsp/language_servers/ruff_server.py test/spikes/test_stage_1e_t6_ruff_server.py
+git commit -m "$(cat <<'EOF'
+stage-1e(t6): RuffServer adapter — native ruff server, push-mode diagnostics
+
+Advertises codeAction support for quickfix + source.organizeImports +
+source.fixAll. Priority for source.organizeImports lives in multi_server.py
+(ruff wins per Phase 0 P2); adapter is unaware.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T6
+```
+
+Update parent ledger and commit.
 
 ### Task 7: `python_strategy.py` skeleton — `MultiServerCoordinator` wiring
 
