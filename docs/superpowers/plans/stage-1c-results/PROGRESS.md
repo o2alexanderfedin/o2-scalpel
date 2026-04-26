@@ -14,7 +14,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | T4  | pool_pre_ping (workspace/symbol echo + spawn replacement)              | 6136a4b2 | OK | — |
 | T5  | RAM-budget guard (psutil-or-fallback; WaitingForLspBudget)             | 09be2d2f | OK | — |
 | T6  | discovery.py + O2_SCALPEL_DISABLE_LANGS filter                         | 3c3e9e53 | OK | — |
-| T7  | Pool ↔ TransactionStore acquire-affinity                               | _pending_ | _pending_ | — |
+| T7  | Pool ↔ TransactionStore acquire-affinity                               | ffac2c25 | OK | — |
 | T8  | Telemetry (.serena/pool-events.jsonl)                                  | _pending_ | _pending_ | — |
 | T9  | End-to-end: 4 MVP LSPs + crash-replace + idle-reap under §16 ceiling   | _pending_ | _pending_ | — |
 | T10 | Submodule ff-merge to main + parent pointer bump + tag                 | _pending_ | _pending_ | — |
