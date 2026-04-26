@@ -13,7 +13,7 @@ Parent branch: `feature/stage-1j-plugin-skill-generator` (off `develop` @ `8ed62
 | T4 | `_render_marketplace_json` | 1feffb9a | OK — 3/3 green | — |
 | T5 | `_render_skill_for_facade` | fc8a5e90 | OK — 5/5 green | — |
 | T6 | `_render_readme` | c0b6fd04 | OK — 5/5 green | — |
-| T7 | `_render_session_start_hook` | _pending_ | _pending_ | — |
+| T7 | `_render_session_start_hook` | 5c9ec82c | OK — 5/5 green | — |
 | T8 | `PluginGenerator.emit` composition | _pending_ | _pending_ | — |
 | T9 | CLI entry `o2-scalpel-newplugin` | _pending_ | _pending_ | — |
 | T10 | Golden-file snapshots (rust + python) | _pending_ | _pending_ | — |
