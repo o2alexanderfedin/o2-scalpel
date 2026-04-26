@@ -2414,3 +2414,1059 @@ cargo test --workspace --no-run --quiet 2>&1 | tail -3
 
 Expected: workspace check exits 0; `--no-run` test build exits 0 (no tests are *executed* here — that's slow; we just verify they all compile). If any crate emits a non-`dead_code` warning, fix it before declaring T2 green.
 
+### Task 3: calcpy package shell + sub-fixture 1 (`calcpy_namespace`, split_file flow)
+
+**Files:**
+- Create: `vendor/serena/test/fixtures/calcpy/{pyproject.toml,calcpy/__init__.py,calcpy/calcpy.py,calcpy/calcpy.pyi,tests/test_calcpy.py,tests/test_public_api.py,tests/test_doctests.py,expected/baseline.txt}`
+- Create: `vendor/serena/test/fixtures/calcpy_namespace/{pyproject.toml,ns_root/calcpy_ns/core.py,tests/test_namespace.py,expected/baseline.txt}`
+
+- [ ] **Step 1: Write `calcpy/pyproject.toml`**
+
+```toml
+[project]
+name = "calcpy-fixture"
+version = "0.0.0"
+requires-python = ">=3.11"
+description = "Stage 1H Python headline fixture; split-file workflow target."
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+addopts = "-q --doctest-modules"
+testpaths = ["tests", "calcpy"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["calcpy"]
+```
+
+- [ ] **Step 2: Write `calcpy/calcpy/__init__.py` (~15 LoC)**
+
+```python
+"""calcpy — headline Stage 1H Python fixture.
+
+The Stage 2 split_file workflow rearranges ``calcpy.py`` into four
+modules (``ast``, ``errors``, ``parser``, ``evaluator``); the
+re-exports below preserve the public API across the split per the
+E10-py / `__all__` preservation gate (specialist-python §11.2 row 9).
+"""
+from .calcpy import (
+    AstNode,
+    CalcError,
+    Evaluator,
+    Parser,
+    evaluate,
+    parse,
+    tokenize,
+)
+
+__all__ = [
+    "AstNode", "CalcError", "Evaluator", "Parser",
+    "evaluate", "parse", "tokenize",
+]
+```
+
+- [ ] **Step 3: Write `calcpy/calcpy/calcpy.py` (~950 LoC; condensed sketch shown — full file follows the Rust calcrs grammar 1:1)**
+
+The full file implements:
+1. `from __future__ import annotations` at the top (preservation gate per specialist-python §11.2 row 12).
+2. `if TYPE_CHECKING: from typing import TYPE_CHECKING; …` shadowing block (row 4).
+3. Module-level `__all__` literal — Stage 2 split must preserve byte-equal name set (row 9).
+4. `_private_helper` and `__name_mangle` symbols — visibility preservation gate (row 18).
+5. PEP 604 union types (`int | str`) and PEP 695 type aliases (`type IntList = list[int]`) — preservation gate (row 22; the file is NOT imported from spike `_pep_syntax.py` because that one targets PEP 701 f-string nesting which isn't needed here).
+6. `@dataclass class Token` — extract/inline interaction gate (row 15).
+7. Doctest-bearing functions with `>>> evaluate("1 + 2")` style — `pytest --doctest-modules` is the E10-py byte-equality gate (row 5 of specialist-python §11.5).
+8. `if __name__ == "__main__":` entry point — preservation gate (row 22).
+
+```python
+"""calcpy — calculator implementation.
+
+This is the **monolith** Stage 2 ``scalpel_split_file`` will split into
+four modules. Stage 1H asserts the monolith compiles cleanly, all
+doctests pass, and the public API in ``__init__.py`` is byte-equal to
+the post-split exports.
+
+>>> evaluate("1 + 2")
+3
+>>> evaluate("(1 + 2) * 3")
+9
+>>> evaluate("let x = 10 in x + 5")
+15
+"""
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    # PEP 484 import-shadowing — the strategy must keep these inside the
+    # TYPE_CHECKING block during split_file (specialist-python §11.2 row 4).
+    from collections.abc import Sequence
+
+__all__ = [
+    "AstNode", "CalcError", "Evaluator", "Parser",
+    "evaluate", "parse", "tokenize",
+]
+
+VERSION: Final[str] = "0.0.0"
+
+# PEP 695 type alias — preservation gate.
+type IntList = list[int]
+
+
+# ---- errors --------------------------------------------------------------
+
+class CalcError(Exception):
+    """Base for every calcpy error."""
+
+
+class LexError(CalcError):
+    def __init__(self, pos: int, msg: str) -> None:
+        super().__init__(f"lex error at {pos}: {msg}")
+        self.pos = pos
+
+
+class ParseError(CalcError):
+    def __init__(self, pos: int, msg: str) -> None:
+        super().__init__(f"parse error at {pos}: {msg}")
+        self.pos = pos
+
+
+class EvalError(CalcError):
+    pass
+
+
+class DivByZero(EvalError):
+    def __init__(self) -> None:
+        super().__init__("division by zero")
+
+
+# ---- ast -----------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Token:
+    kind: str
+    value: int | str
+    pos: int
+
+
+# ... (≈800 more LoC: AstNode dataclass hierarchy, Parser, Evaluator,
+# tokenize/parse/evaluate top-level helpers, doctest blocks for each
+# public function. The structure mirrors the Rust calcrs grammar 1:1 so
+# the post-split E1 vs E1-py gates compare like-for-like.)
+
+
+def _private_helper(x: int) -> int:
+    """Underscore-private; visibility preservation gate."""
+    return -x
+
+
+class _PrivateClass:
+    def __mangled(self) -> int:    # noqa: PLW0211
+        return 0
+
+
+def evaluate(src: str) -> int:
+    """Evaluate a calcpy expression.
+
+    >>> evaluate("max(3, 7)")
+    7
+    >>> evaluate("if 1 { 7 } else { 9 }")
+    7
+    """
+    return Evaluator().eval(parse(src))
+
+
+def parse(src: str) -> AstNode:
+    return Parser(src).parse_expression()
+
+
+def tokenize(src: str) -> list[Token]:
+    return list(_lex(src))
+
+
+# ... `_lex`, `Parser`, `Evaluator`, AstNode subclasses follow.
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if not args:
+        print("usage: calcpy <expression>")
+        sys.exit(1)
+    print(evaluate(" ".join(args)))
+```
+
+The full ~950 LoC body is best generated mechanically by translating `calcrs/src/{ast,errors,parser,eval}.rs` to Python. The translation rules:
+
+1. Each Rust enum variant becomes a `dataclass(frozen=True)` subclass of `AstNode`.
+2. Each Rust `&str` becomes Python `str`; each `i64` becomes Python `int`.
+3. The Rust `Vec<(Token, usize)>` token stream becomes Python `list[Token]`.
+4. Every public function gets a docstring + at least one doctest (`>>> …`).
+5. Every error path raises a `CalcError` subclass (no `Result[..., ...]` since Python uses exceptions).
+
+- [ ] **Step 4: Write `calcpy/calcpy/calcpy.pyi` (~120 LoC)**
+
+```python
+"""calcpy — type stub for basedpyright.
+
+Mirrors `calcpy.py`'s public API only. `_private_helper`, `_PrivateClass`,
+`_lex` are intentionally absent — basedpyright reads `.pyi` first when
+present, and the missing names exercise the diagnostic-count baseline
+(Q3 fixture from scope-report §14.2 row 27a).
+"""
+from dataclasses import dataclass
+
+__all__ = [
+    "AstNode", "CalcError", "Evaluator", "Parser",
+    "evaluate", "parse", "tokenize",
+]
+
+VERSION: str
+
+class CalcError(Exception): ...
+class LexError(CalcError):
+    pos: int
+    def __init__(self, pos: int, msg: str) -> None: ...
+class ParseError(CalcError):
+    pos: int
+    def __init__(self, pos: int, msg: str) -> None: ...
+class EvalError(CalcError): ...
+class DivByZero(EvalError):
+    def __init__(self) -> None: ...
+
+@dataclass(frozen=True)
+class Token:
+    kind: str
+    value: int | str
+    pos: int
+
+class AstNode: ...
+class Parser:
+    def __init__(self, src: str) -> None: ...
+    def parse_expression(self) -> AstNode: ...
+
+class Evaluator:
+    def __init__(self) -> None: ...
+    def eval(self, node: AstNode) -> int: ...
+
+def evaluate(src: str) -> int: ...
+def parse(src: str) -> AstNode: ...
+def tokenize(src: str) -> list[Token]: ...
+```
+
+- [ ] **Step 5: Write `calcpy/tests/test_calcpy.py` (~220 LoC)**
+
+```python
+"""End-to-end calcpy tests — frozen baseline for the E1-py byte-equality gate."""
+from __future__ import annotations
+
+import pytest
+
+from calcpy import (
+    CalcError,
+    DivByZero as _DivByZero,
+    Evaluator,
+    LexError as _LexError,
+    Parser,
+    ParseError as _ParseError,
+    evaluate,
+    parse,
+    tokenize,
+)
+
+
+@pytest.mark.parametrize(
+    "src,expect",
+    [
+        ("1 + 2", 3),
+        ("(1 + 2) * 3", 9),
+        ("10 / 2 - 1", 4),
+        ("-5 + 10", 5),
+        ("max(3, 7)", 7),
+        ("min(3, 7)", 3),
+        ("abs(-4)", 4),
+        ("pow(2, 10)", 1024),
+        ("let x = 10 in x + 5", 15),
+        ("if 1 { 7 } else { 9 }", 7),
+        ("if 0 { 7 } else { 9 }", 9),
+    ],
+)
+def test_arithmetic_canon(src: str, expect: int) -> None:
+    assert evaluate(src) == expect
+
+
+def test_div_by_zero_kind() -> None:
+    with pytest.raises(_DivByZero):
+        evaluate("1 / 0")
+
+
+def test_unknown_var_kind() -> None:
+    with pytest.raises(CalcError):
+        evaluate("zzz")
+
+
+def test_unknown_fn_kind() -> None:
+    with pytest.raises(CalcError):
+        evaluate("nope(1)")
+
+
+def test_parse_returns_ast_node() -> None:
+    node = parse("1 + 2")
+    assert node is not None
+
+
+def test_evaluator_round_trip() -> None:
+    ev = Evaluator()
+    p = Parser("1 + 2 * 3")
+    assert ev.eval(p.parse_expression()) == 7
+
+
+def test_tokenize_smoke() -> None:
+    toks = tokenize("1 + 2")
+    assert len(toks) == 4   # NUM PLUS NUM EOF
+
+
+# ... ~150 LoC of additional sub-tests covering each public path.
+```
+
+- [ ] **Step 6: Write `calcpy/tests/test_public_api.py` (~60 LoC)**
+
+```python
+"""Assert `from calcpy import *` produces a stable name set."""
+from __future__ import annotations
+
+
+def test_star_import_exact_name_set() -> None:
+    """E10-py / `__all__` preservation gate."""
+    namespace: dict[str, object] = {}
+    exec("from calcpy import *", namespace)
+    public_names = {n for n in namespace if not n.startswith("_") and n != "__builtins__"}
+    expected = {
+        "AstNode", "CalcError", "Evaluator", "Parser",
+        "evaluate", "parse", "tokenize",
+    }
+    assert public_names == expected
+
+
+def test_init_all_matches_module_all() -> None:
+    """`calcpy.__all__` must match `calcpy.calcpy.__all__`."""
+    import calcpy
+    import calcpy.calcpy as inner
+    assert set(calcpy.__all__) == set(inner.__all__)
+```
+
+- [ ] **Step 7: Write `calcpy/tests/test_doctests.py` (~30 LoC)**
+
+```python
+"""Run every doctest in `calcpy.calcpy`. The frozen output is the E10-py gate."""
+from __future__ import annotations
+
+import doctest
+
+import calcpy.calcpy as inner
+
+
+def test_doctests_pass() -> None:
+    failures, attempted = doctest.testmod(inner, verbose=False)
+    assert failures == 0, f"{failures}/{attempted} doctests failed"
+    assert attempted >= 5, f"expected ≥ 5 doctests, found {attempted}"
+```
+
+- [ ] **Step 8: Write `calcpy/expected/baseline.txt` (~30 LoC)**
+
+```text
+============================= test session starts ==============================
+collected 30 items
+
+calcpy/calcpy.py ...                                                     [ 10%]
+tests/test_calcpy.py ......................                              [ 83%]
+tests/test_doctests.py .                                                 [ 86%]
+tests/test_public_api.py ..                                              [ 93%]
+
+============================== 30 passed in 0.40s ==============================
+```
+
+The exact line shape may need a one-time regenerate after the first run; the gate compares the **collected count** + **passed count** + **failure count** rather than the exact byte sequence (timing varies per machine).
+
+- [ ] **Step 9: Write `calcpy_namespace/pyproject.toml`**
+
+```toml
+[project]
+name = "calcpy-namespace-fixture"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ns_root/calcpy_ns"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+```
+
+- [ ] **Step 10: Write `calcpy_namespace/ns_root/calcpy_ns/core.py` (~120 LoC)**
+
+PEP 420 namespace package — note the **deliberate absence** of any `__init__.py` in `ns_root/` and `ns_root/calcpy_ns/` (the strategy must NOT create one during split).
+
+```python
+"""calcpy_ns.core — PEP 420 namespace fixture (split_file flow).
+
+Stage 2 split_file moves ~half of the symbols below into a sibling
+module `calcpy_ns/parts.py`. The strategy must NOT create
+`calcpy_ns/__init__.py` (specialist-python §11.3.1 gate).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass
+class Spec:
+    name: str
+    flag: bool = False
+
+
+@dataclass
+class Result:
+    out: int
+    spec: Spec
+
+
+def make_spec(name: str) -> Spec:
+    return Spec(name=name, flag=True)
+
+
+def make_result(out: int, spec: Spec) -> Result:
+    return Result(out=out, spec=spec)
+
+
+# ... ~60 more LoC of helper functions + classes; each is a candidate
+# for the split target. The split groups symbols into two modules:
+#   - "spec.py"   = {Spec, make_spec}
+#   - "result.py" = {Result, make_result}
+# The remaining helpers stay in `core.py`.
+```
+
+- [ ] **Step 11: Write `calcpy_namespace/tests/test_namespace.py` (~60 LoC)**
+
+```python
+"""Verify the namespace package round-trips and contains no `__init__.py`."""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Add ns_root to sys.path so `import calcpy_ns` resolves through PEP 420.
+sys.path.insert(0, str(Path(__file__).parents[1] / "ns_root"))
+
+import calcpy_ns.core as core
+
+
+def test_namespace_pkg_has_no_init_py() -> None:
+    pkg_dir = Path(__file__).parents[1] / "ns_root" / "calcpy_ns"
+    assert pkg_dir.is_dir()
+    assert not (pkg_dir / "__init__.py").exists(), (
+        "calcpy_ns must remain a PEP 420 namespace package — no __init__.py."
+    )
+
+
+def test_make_spec_and_result_round_trip() -> None:
+    s = core.make_spec("alpha")
+    r = core.make_result(42, s)
+    assert r.out == 42
+    assert r.spec.name == "alpha"
+    assert r.spec.flag is True
+
+
+def test_namespace_module_has_path_attr() -> None:
+    import calcpy_ns
+    # PEP 420: a namespace package's `__path__` is a `_NamespacePath`.
+    assert hasattr(calcpy_ns, "__path__")
+    assert calcpy_ns.__path__ is not None
+```
+
+- [ ] **Step 12: Write `calcpy_namespace/expected/baseline.txt` (~10 LoC)**
+
+```text
+============================= test session starts ==============================
+collected 3 items
+
+tests/test_namespace.py ...                                              [100%]
+
+============================== 3 passed in 0.10s ==============================
+```
+
+- [ ] **Step 13: Pre-commit Python smoke (`pytest -q` per fixture)**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pip install -e test/fixtures/calcpy
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/fixtures/calcpy -q 2>&1 | tail -5
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/fixtures/calcpy_namespace -q 2>&1 | tail -5
+```
+
+Expected: both fixtures green; calcpy reports ~30 passed; calcpy_namespace reports 3 passed. If `pip install -e` fails on hatchling, `pip install hatchling` first.
+
+- [ ] **Step 14: Commit T3**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/fixtures/calcpy/ test/fixtures/calcpy_namespace/
+git commit -m "$(cat <<'EOF'
+stage-1h(t3): calcpy headline package + calcpy_namespace sub-fixture
+
+calcpy/ — ~950 LoC monolith calcpy.py + calcpy.pyi stub +
+__init__.py re-exports + tests (calc / public_api / doctests) +
+frozen baseline.txt. Exercises the ten ugly-on-purpose features
+(specialist-python §11.2): __future__/annotations, TYPE_CHECKING
+shadow, __all__, _private + __name_mangle, PEP 604 unions, PEP 695
+type alias, @dataclass Token, doctest-bearing functions,
+if __name__ == '__main__' entry point.
+
+calcpy_namespace/ — PEP 420 namespace package; strategy MUST NOT
+create __init__.py during split (E8-py gate).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1h-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1h(t3): bump submodule + ledger T3 close
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+**Verification:**
+
+```bash
+ls /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcpy_namespace/ns_root/calcpy_ns/
+# expected: core.py only (NO __init__.py)
+```
+
+### Task 4: calcpy sub-fixture 2 (`calcpy_circular`, extract_function flow)
+
+**Files:**
+- Create: `vendor/serena/test/fixtures/calcpy_circular/{pyproject.toml,__init__.py,a.py,b.py,tests/test_circular.py,expected/baseline.txt}`
+
+- [ ] **Step 1: Write `calcpy_circular/pyproject.toml`**
+
+```toml
+[project]
+name = "calcpy-circular-fixture"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+```
+
+- [ ] **Step 2: Write `calcpy_circular/__init__.py`**
+
+```python
+"""calcpy_circular — circular-import trap fixture.
+
+`a.py` imports `B` from `b.py` at top level (works because
+`b.py` defers `A` to inside the function body). The strategy
+must detect that promoting the lazy import would break the
+graph; extract_function on `B.use_a()` is allowed because the
+extracted function stays inside `b.py`.
+"""
+from .a import A
+from .b import B
+
+__all__ = ["A", "B"]
+```
+
+- [ ] **Step 3: Write `calcpy_circular/a.py` (~30 LoC)**
+
+```python
+"""`a.py` — top-level imports B; circular trap setup."""
+from __future__ import annotations
+
+from .b import B
+
+
+class A:
+    """A holds a reference to B."""
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.partner: B | None = None
+
+    def link(self, b: B) -> None:
+        self.partner = b
+        b.partner = self
+
+    def describe(self) -> str:
+        return f"A({self.label}) <-> {self.partner!r if self.partner else None}"
+```
+
+- [ ] **Step 4: Write `calcpy_circular/b.py` (~30 LoC)**
+
+```python
+"""`b.py` — defers `from .a import A` to inside `use_a()`.
+
+`extract_function` integration test (T19 — but consumed here for the
+test-data round-trip) extracts the body of `use_a()` into
+`B._format_partner` and asserts the lazy import remains intact.
+"""
+from __future__ import annotations
+
+
+class B:
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+        self.partner: object | None = None   # narrowed at runtime to A
+
+    def use_a(self, label: str) -> str:
+        # Deliberately late import — promoting this to module scope
+        # creates a cycle.
+        from .a import A
+        new_a = A(label)
+        new_a.link(self)
+        return f"{self.tag}={new_a.describe()}"
+```
+
+- [ ] **Step 5: Write `calcpy_circular/tests/test_circular.py` (~30 LoC)**
+
+```python
+"""Verify the circular import resolves at runtime."""
+from __future__ import annotations
+
+from calcpy_circular import A, B
+
+
+def test_link_round_trip() -> None:
+    a = A("alpha")
+    b = B("BRAVO")
+    a.link(b)
+    assert a.partner is b
+    assert b.partner is a
+
+
+def test_use_a_lazy_import() -> None:
+    b = B("X")
+    out = b.use_a("y")
+    assert "BRAVO" not in out  # use_a starts a *new* `A` object
+    assert "y" in out
+```
+
+- [ ] **Step 6: Write `calcpy_circular/expected/baseline.txt`**
+
+```text
+============================= test session starts ==============================
+collected 2 items
+
+tests/test_circular.py ..                                                [100%]
+
+============================== 2 passed in 0.05s ==============================
+```
+
+- [ ] **Step 7: Pre-commit Python smoke**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pip install -e test/fixtures/calcpy_circular
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/fixtures/calcpy_circular -q 2>&1 | tail -5
+```
+
+Expected: 2 passed. If a circular-import error fires at collect time, the lazy import in `b.py` was lifted accidentally — restore it.
+
+- [ ] **Step 8: Commit T4**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/fixtures/calcpy_circular/
+git commit -m "$(cat <<'EOF'
+stage-1h(t4): calcpy_circular sub-fixture (extract_function flow)
+
+A holds B at top level; B holds A behind a lazy `from .a import A`.
+Strategy must detect that promoting the lazy import to module scope
+would create a cycle; extract_function on `B.use_a()` body stays
+inside `b.py` so the cycle remains broken.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1h-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1h(t4): bump submodule + ledger T4 close
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+### Task 5: calcpy sub-fixture 3 (`calcpy_dataclasses`, inline flow)
+
+**Files:**
+- Create: `vendor/serena/test/fixtures/calcpy_dataclasses/{pyproject.toml,__init__.py,tests/test_dc.py,expected/baseline.txt}`
+
+- [ ] **Step 1: Write `calcpy_dataclasses/pyproject.toml`**
+
+```toml
+[project]
+name = "calcpy-dataclasses-fixture"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+```
+
+- [ ] **Step 2: Write `calcpy_dataclasses/__init__.py` (~180 LoC; condensed sketch)**
+
+```python
+"""calcpy_dataclasses — five @dataclass declarations; inline flow target.
+
+Stage 2 will extract `Position` to a sibling module via
+`extract_symbols_to_module` (v1.1 facade); Stage 1H asserts inline of
+helper functions on the dataclasses (T19 inline integration test
+consumes this fixture).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Position:
+    x: int = 0
+    y: int = 0
+    z: int = 0
+
+    def magnitude_sq(self) -> int:
+        return self.x * self.x + self.y * self.y + self.z * self.z
+
+
+@dataclass
+class Velocity:
+    dx: int = 0
+    dy: int = 0
+    dz: int = 0
+
+    def speed_sq(self) -> int:
+        return self.dx * self.dx + self.dy * self.dy + self.dz * self.dz
+
+
+@dataclass
+class Particle:
+    pos: Position
+    vel: Velocity
+    mass: int = 1
+
+
+@dataclass
+class Field3D:
+    cells: list[list[list[int]]] = field(default_factory=list)
+
+
+@dataclass
+class Simulation:
+    particles: list[Particle] = field(default_factory=list)
+    field: Field3D = field(default_factory=Field3D)
+
+    def step(self) -> None:
+        for p in self.particles:
+            p.pos = Position(
+                p.pos.x + p.vel.dx,
+                p.pos.y + p.vel.dy,
+                p.pos.z + p.vel.dz,
+            )
+
+
+# Helper functions (inline targets) ------------------------------------------
+
+def make_origin_position() -> Position:
+    """Inline target: callers replace the call with a literal."""
+    return Position(0, 0, 0)
+
+
+def make_unit_velocity() -> Velocity:
+    """Inline target."""
+    return Velocity(1, 0, 0)
+
+
+def empty_simulation() -> Simulation:
+    return Simulation(particles=[], field=Field3D(cells=[]))
+```
+
+- [ ] **Step 3: Write `calcpy_dataclasses/tests/test_dc.py` (~30 LoC)**
+
+```python
+from __future__ import annotations
+
+from calcpy_dataclasses import (
+    Particle,
+    Position,
+    Simulation,
+    Velocity,
+    empty_simulation,
+    make_origin_position,
+    make_unit_velocity,
+)
+
+
+def test_position_magnitude() -> None:
+    assert Position(3, 4, 0).magnitude_sq() == 25
+
+
+def test_velocity_speed() -> None:
+    assert Velocity(1, 2, 2).speed_sq() == 9
+
+
+def test_particle_step() -> None:
+    sim = Simulation(particles=[Particle(make_origin_position(), make_unit_velocity())])
+    sim.step()
+    assert sim.particles[0].pos == Position(1, 0, 0)
+
+
+def test_empty_simulation() -> None:
+    s = empty_simulation()
+    assert s.particles == [] and s.field.cells == []
+```
+
+- [ ] **Step 4: Write `calcpy_dataclasses/expected/baseline.txt`**
+
+```text
+============================= test session starts ==============================
+collected 4 items
+
+tests/test_dc.py ....                                                    [100%]
+
+============================== 4 passed in 0.06s ==============================
+```
+
+- [ ] **Step 5: Pre-commit smoke**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pip install -e test/fixtures/calcpy_dataclasses
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/fixtures/calcpy_dataclasses -q 2>&1 | tail -5
+```
+
+Expected: 4 passed.
+
+- [ ] **Step 6: Commit T5**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/fixtures/calcpy_dataclasses/
+git commit -m "$(cat <<'EOF'
+stage-1h(t5): calcpy_dataclasses sub-fixture (inline flow)
+
+Five @dataclass declarations (Position, Velocity, Particle, Field3D,
+Simulation) + three helper functions targeted by inline integration
+test. Exercises decorator-discovered top-level resolution
+(specialist-python §11.3.3).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1h-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1h(t5): bump submodule + ledger T5 close
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+### Task 6: calcpy sub-fixture 4 (`calcpy_notebooks`, organize_imports flow)
+
+**Files:**
+- Create: `vendor/serena/test/fixtures/calcpy_notebooks/{pyproject.toml,src/calcpy_min.py,notebooks/explore.ipynb,tests/test_notebooks.py,expected/baseline.txt}`
+
+- [ ] **Step 1: Write `calcpy_notebooks/pyproject.toml`**
+
+```toml
+[project]
+name = "calcpy-notebooks-fixture"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/calcpy_min"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+```
+
+- [ ] **Step 2: Write `calcpy_notebooks/src/calcpy_min/__init__.py` (~30 LoC)**
+
+```python
+"""calcpy_min — minimal calculator imported by the notebook fixture.
+
+This is the canonical module that `notebooks/explore.ipynb` imports.
+The integration test asserts:
+  1) ruff `source.organizeImports.ruff` reorders the messy imports.
+  2) The notebook is *not* rewritten — strategy detects `.ipynb` and
+     emits a warning entry in `RefactorResult.warnings`.
+"""
+from __future__ import annotations
+
+# Deliberately disordered imports to give organize_imports a target.
+from typing import Final
+import sys
+import os
+from collections import OrderedDict
+from pathlib import Path
+import json
+
+VERSION: Final[str] = "0.0.0"
+
+
+def evaluate(src: str) -> int:
+    return sum(int(t) for t in src.split())
+```
+
+(Place the file at `src/calcpy_min/__init__.py` — the package is `calcpy_min`.)
+
+- [ ] **Step 3: Write `calcpy_notebooks/notebooks/explore.ipynb` (~40 LoC raw JSON)**
+
+```json
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from calcpy_min import evaluate\n",
+    "evaluate('1 2 3')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": ["## Notebook fixture for Stage 1H\n", "Strategy MUST detect this file and warn but not rewrite."]
+  }
+ ],
+ "metadata": {
+  "kernelspec": { "display_name": "Python 3", "language": "python", "name": "python3" },
+  "language_info": { "name": "python", "version": "3.11.0" }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
+```
+
+- [ ] **Step 4: Write `calcpy_notebooks/tests/test_notebooks.py` (~30 LoC)**
+
+```python
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from calcpy_min import evaluate
+
+
+def test_evaluate_sums_tokens() -> None:
+    assert evaluate("1 2 3") == 6
+
+
+def test_notebook_file_is_valid_json() -> None:
+    nb_path = Path(__file__).parents[1] / "notebooks" / "explore.ipynb"
+    raw = nb_path.read_text(encoding="utf-8")
+    nb = json.loads(raw)
+    assert nb["nbformat"] == 4
+    assert any(c["cell_type"] == "code" for c in nb["cells"])
+```
+
+- [ ] **Step 5: Write `expected/baseline.txt`**
+
+```text
+============================= test session starts ==============================
+collected 2 items
+
+tests/test_notebooks.py ..                                               [100%]
+
+============================== 2 passed in 0.05s ==============================
+```
+
+- [ ] **Step 6: Pre-commit smoke**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pip install -e test/fixtures/calcpy_notebooks
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/fixtures/calcpy_notebooks -q 2>&1 | tail -5
+```
+
+Expected: 2 passed.
+
+- [ ] **Step 7: Commit T6**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/fixtures/calcpy_notebooks/
+git commit -m "$(cat <<'EOF'
+stage-1h(t6): calcpy_notebooks sub-fixture (organize_imports flow)
+
+src/calcpy_min/ — minimal package with deliberately disordered
+imports for ruff source.organizeImports.ruff target.
+notebooks/explore.ipynb — JSON cell importing calcpy_min;
+strategy MUST detect .ipynb and warn, not rewrite.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1h-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1h(t6): bump submodule + ledger T6 close
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
