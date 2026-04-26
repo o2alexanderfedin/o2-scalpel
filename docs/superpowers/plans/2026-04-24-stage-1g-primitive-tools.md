@@ -1246,4 +1246,340 @@ Expected: T2 row reads OK — 7/7 green; submodule pointer bumped.
 
 ---
 
+### Task 3: `ScalpelCapabilitiesListTool` + `ScalpelCapabilityDescribeTool`
+
+**Files:**
+- Create: `vendor/serena/src/serena/tools/scalpel_primitives.py` (initial 2-tool version; T4..T8 append more classes)
+- Create: `vendor/serena/test/spikes/test_stage_1g_t2_capabilities_list.py`
+- Create: `vendor/serena/test/spikes/test_stage_1g_t3_capability_describe.py`
+
+- [ ] **Step 1: Write failing tests — capabilities_list**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t2_capabilities_list.py`:
+
+```python
+"""T3 — ScalpelCapabilitiesListTool: language filter, kind filter, descriptors."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def _build_tool():
+    from unittest.mock import MagicMock
+
+    from serena.tools.scalpel_primitives import ScalpelCapabilitiesListTool
+
+    agent = MagicMock(name="SerenaAgent")
+    return ScalpelCapabilitiesListTool(agent=agent)
+
+
+def test_tool_name_is_scalpel_capabilities_list() -> None:
+    from serena.tools.scalpel_primitives import ScalpelCapabilitiesListTool
+
+    assert ScalpelCapabilitiesListTool.get_name_from_cls() == "scalpel_capabilities_list"
+
+
+def test_apply_returns_json_array_of_descriptors() -> None:
+    tool = _build_tool()
+    raw = tool.apply()
+    payload = json.loads(raw)
+    assert isinstance(payload, list)
+    # Each row matches CapabilityDescriptor field surface.
+    if payload:
+        for row in payload:
+            assert set(row).issuperset({
+                "capability_id", "title", "language",
+                "kind", "source_server", "preferred_facade",
+            })
+
+
+def test_apply_filters_by_language() -> None:
+    tool = _build_tool()
+    raw = tool.apply(language="rust")
+    payload = json.loads(raw)
+    assert all(row["language"] == "rust" for row in payload)
+
+
+def test_apply_filters_by_kind() -> None:
+    tool = _build_tool()
+    raw = tool.apply(filter_kind="refactor.extract")
+    payload = json.loads(raw)
+    assert all(row["kind"].startswith("refactor.extract") for row in payload)
+
+
+def test_apply_unknown_language_returns_empty_list() -> None:
+    tool = _build_tool()
+    raw = tool.apply(language="cobol")  # type: ignore[arg-type]
+    payload = json.loads(raw)
+    assert payload == []
+```
+
+- [ ] **Step 2: Write failing tests — capability_describe**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t3_capability_describe.py`:
+
+```python
+"""T3 — ScalpelCapabilityDescribeTool: full descriptor + unknown-id failure."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def _build_tool():
+    from unittest.mock import MagicMock
+
+    from serena.tools.scalpel_primitives import ScalpelCapabilityDescribeTool
+
+    agent = MagicMock(name="SerenaAgent")
+    return ScalpelCapabilityDescribeTool(agent=agent)
+
+
+def _pick_a_real_capability_id() -> str:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    cat = ScalpelRuntime.instance().catalog()
+    if not cat.records:
+        pytest.skip("Capability catalog is empty in this build; nothing to describe.")
+    return cat.records[0].id
+
+
+def test_tool_name_is_scalpel_capability_describe() -> None:
+    from serena.tools.scalpel_primitives import ScalpelCapabilityDescribeTool
+
+    assert ScalpelCapabilityDescribeTool.get_name_from_cls() == "scalpel_capability_describe"
+
+
+def test_apply_returns_full_descriptor_for_known_id() -> None:
+    tool = _build_tool()
+    cid = _pick_a_real_capability_id()
+    raw = tool.apply(capability_id=cid)
+    payload = json.loads(raw)
+    assert payload["capability_id"] == cid
+    assert set(payload).issuperset({
+        "capability_id", "title", "language", "kind",
+        "source_server", "preferred_facade",
+        "params_schema", "extension_allow_list", "description",
+    })
+
+
+def test_apply_unknown_id_returns_failure_payload() -> None:
+    tool = _build_tool()
+    raw = tool.apply(capability_id="not.a.real.capability")
+    payload = json.loads(raw)
+    assert "failure" in payload
+    assert payload["failure"]["code"] == "CAPABILITY_NOT_AVAILABLE"
+    # candidates may be empty if no fuzzy match; field must exist.
+    assert "candidates" in payload["failure"]
+```
+
+- [ ] **Step 3: Run both test files to verify they fail**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest \
+    test/spikes/test_stage_1g_t2_capabilities_list.py \
+    test/spikes/test_stage_1g_t3_capability_describe.py -v
+```
+
+Expected: every test errors at collection with `ModuleNotFoundError: No module named 'serena.tools.scalpel_primitives'`.
+
+- [ ] **Step 4: Write minimal implementation (T3 surface only)**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/tools/scalpel_primitives.py`:
+
+```python
+"""Stage 1G — 8 always-on primitive / safety / diagnostics MCP tools.
+
+Each ``Scalpel*Tool`` subclass is auto-discovered by
+``iter_subclasses(Tool)`` (``serena/mcp.py:249``); the snake-cased
+class name (``Tool.get_name_from_cls``) becomes the MCP tool name.
+
+Docstrings on every ``apply`` method are ≤30 words (router signage,
+§5.4): imperative verb + discriminator + contract bit.
+
+Initial revision (T3) ships ``ScalpelCapabilitiesListTool`` and
+``ScalpelCapabilityDescribeTool``; T4..T8 append the remaining six
+primitive tools without re-touching the existing classes.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from serena.tools.scalpel_runtime import ScalpelRuntime
+from serena.tools.scalpel_schemas import (
+    CapabilityDescriptor,
+    CapabilityFullDescriptor,
+    ErrorCode,
+    FailureInfo,
+)
+from serena.tools.tools_base import Tool
+
+
+class ScalpelCapabilitiesListTool(Tool):
+    """List capabilities for a language with optional filter."""
+
+    def apply(
+        self,
+        language: Literal["rust", "python"] | None = None,
+        filter_kind: str | None = None,
+        applies_to_symbol_kind: str | None = None,
+    ) -> str:
+        """List capabilities for a language with optional filter. Returns
+        capability_id + title + applies_to_kinds + preferred_facade.
+
+        :param language: 'rust' or 'python'; None returns both languages.
+        :param filter_kind: LSP code-action kind prefix to filter by.
+        :param applies_to_symbol_kind: reserved (Stage 2A); unused at MVP.
+        :return: JSON array of CapabilityDescriptor rows.
+        """
+        catalog = ScalpelRuntime.instance().catalog()
+        rows: list[CapabilityDescriptor] = []
+        for rec in catalog.records:
+            if language is not None and rec.language != language:
+                continue
+            if filter_kind is not None and not rec.kind.startswith(filter_kind):
+                continue
+            rows.append(CapabilityDescriptor(
+                capability_id=rec.id,
+                title=rec.id.rsplit(".", 1)[-1].replace("_", " ").title(),
+                language=rec.language,
+                kind=rec.kind,
+                source_server=rec.source_server,
+                preferred_facade=rec.preferred_facade,
+            ))
+        return "[" + ",".join(r.model_dump_json() for r in rows) + "]"
+
+
+class ScalpelCapabilityDescribeTool(Tool):
+    """Describe one capability_id (full schema)."""
+
+    def apply(self, capability_id: str) -> str:
+        """Return full schema, examples, and pre-conditions for one
+        capability_id. Call before invoking unknown capabilities.
+
+        :param capability_id: stable o2.scalpel-issued id (e.g.
+            'rust.refactor.extract.module'). Source: capabilities_list.
+        :return: JSON CapabilityFullDescriptor or {failure: ...} payload.
+        """
+        catalog = ScalpelRuntime.instance().catalog()
+        for rec in catalog.records:
+            if rec.id == capability_id:
+                desc = CapabilityFullDescriptor(
+                    capability_id=rec.id,
+                    title=rec.id.rsplit(".", 1)[-1].replace("_", " ").title(),
+                    language=rec.language,
+                    kind=rec.kind,
+                    source_server=rec.source_server,
+                    preferred_facade=rec.preferred_facade,
+                    params_schema=rec.params_schema,
+                    extension_allow_list=tuple(sorted(rec.extension_allow_list)),
+                    description=(
+                        f"{rec.kind} from {rec.source_server} (Stage 1F catalog)."
+                    ),
+                )
+                return desc.model_dump_json(indent=2)
+        # Unknown id — emit a structured failure payload that mirrors
+        # FailureInfo so the LLM can read the same shape it sees on
+        # apply_capability failures.
+        candidates = sorted(
+            r.id for r in catalog.records
+            if any(part in r.id for part in capability_id.split("."))
+        )[:5]
+        failure = FailureInfo(
+            stage="scalpel_capability_describe",
+            symbol=capability_id,
+            reason=f"Unknown capability_id: {capability_id!r}",
+            code=ErrorCode.CAPABILITY_NOT_AVAILABLE,
+            recoverable=True,
+            candidates=tuple(candidates),
+        )
+        return '{"failure": ' + failure.model_dump_json() + "}"
+
+
+__all__ = [
+    "ScalpelCapabilitiesListTool",
+    "ScalpelCapabilityDescribeTool",
+]
+```
+
+- [ ] **Step 5: Re-run tests, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest \
+    test/spikes/test_stage_1g_t2_capabilities_list.py \
+    test/spikes/test_stage_1g_t3_capability_describe.py -v
+```
+
+Expected: 8/8 PASS (5 list + 3 describe). If `_pick_a_real_capability_id` reports an empty catalog, that means Stage 1F's `build_capability_catalog` returned no records when invoked with the live STRATEGY_REGISTRY — verify Stage 1F T9 outcome first.
+
+- [ ] **Step 6: Commit T3**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/scalpel_primitives.py \
+        test/spikes/test_stage_1g_t2_capabilities_list.py \
+        test/spikes/test_stage_1g_t3_capability_describe.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t3): catalog tools — capabilities_list + capability_describe (8/8 green)
+
+Adds the first two of eight always-on primitive tools. Both subclass
+the existing serena.tools.tools_base.Tool so they're auto-discovered
+by iter_subclasses(Tool) in serena/mcp.py:249. Names auto-derived by
+get_name_from_cls => 'scalpel_capabilities_list' /
+'scalpel_capability_describe'. Catalog read from ScalpelRuntime
+(cached). Unknown capability_id returns a FailureInfo payload with
+ErrorCode.CAPABILITY_NOT_AVAILABLE plus up to 5 fuzzy candidates.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+Then update parent ledger row T3:
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+plan(stage-1g): T3 ledger — capabilities_list + capability_describe (8/8 green)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+Expected: T3 row reads OK — 8/8 green; submodule pointer bumped.
+
+---
+
 
