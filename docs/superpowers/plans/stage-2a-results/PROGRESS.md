@@ -6,7 +6,7 @@
 | T1 | 72d9b881e0ca34a14dbacf7c120c32869629c4b0 | DONE | _AsyncAdapter wraps sync facades for async coord |
 | T2 | 8bdb453019af407ee9d81a3f5ff8cc9cf228d71f | DONE | facade_support helpers |
 | T3 | 69cc6f82a04ec7040856cb41f2bba3cc39a1474b | DONE | scalpel_split_file |
-| T4 | | | |
+| T4 | 5b0a13c5f41a17534384424011fc3e9d08a9e354 | DONE | scalpel_extract |
 | T5 | | | |
 | T6 | | | |
 | T7 | | | |
