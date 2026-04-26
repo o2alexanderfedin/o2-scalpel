@@ -777,11 +777,499 @@ Co-Authored-By: AI Hive(R) <noreply@o2.services>"
 
 ### Task 3: `pylsp_server.py` adapter — basic spawn/init
 
-_(T3 detail expanded below.)_
+**Files:**
+- Create: `vendor/serena/src/solidlsp/language_servers/pylsp_server.py`
+- Create: `vendor/serena/test/spikes/test_stage_1e_t3_pylsp_server_spawn.py`
+
+T3 lands the spawn/init skeleton: subclass of `SolidLanguageServer`, launches `python -m pylsp` (with the `pylsp-rope` plugin auto-discovered since both are installed in the venv via the `python-lsps` extra), passes the standard `InitializeParams` shape (template: `jedi_server.py`), and registers the inherited reverse-request handlers via `super()._install_default_request_handlers()`. The adapter does NOT yet override `execute_command` — that override lands in T4 (the real `workspace/applyEdit` drain that closes Stage 1D T11).
+
+- [ ] **Step 1: Write failing test — adapter exists, identifies as Python, spawns**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t3_pylsp_server_spawn.py`:
+
+```python
+"""T3 — PylspServer adapter spawn + initialize round-trip."""
+
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+
+import pytest
+
+PYLSP_AVAILABLE = shutil.which("pylsp") is not None or os.environ.get("CI") == "true"
+
+
+def test_pylsp_server_imports() -> None:
+    from solidlsp.language_servers.pylsp_server import PylspServer  # noqa: F401
+
+
+def test_pylsp_server_subclasses_solid_language_server() -> None:
+    from solidlsp.ls import SolidLanguageServer
+    from solidlsp.language_servers.pylsp_server import PylspServer
+
+    assert issubclass(PylspServer, SolidLanguageServer)
+
+
+def test_pylsp_server_advertises_python_language() -> None:
+    """Construction-time identity — does not boot the subprocess."""
+    from solidlsp.language_servers.pylsp_server import PylspServer
+    from solidlsp.ls_config import LanguageServerConfig, Language
+    from solidlsp.settings import SolidLSPSettings
+
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = PylspServer(cfg, str(Path.cwd()), SolidLSPSettings())
+    assert srv.language == "python"
+
+
+@pytest.mark.skipif(not PYLSP_AVAILABLE, reason="pylsp not installed (install with [python-lsps] extra)")
+def test_pylsp_server_boots_and_initializes(tmp_path: Path) -> None:
+    """Real-LSP boot smoke: start_server() must complete without raising
+    and the server must respond to a trivial document/symbol request.
+
+    Marked skipif so CI environments without the extra still pass T3 import-only.
+    """
+    from solidlsp.language_servers.pylsp_server import PylspServer
+    from solidlsp.ls_config import LanguageServerConfig, Language
+    from solidlsp.settings import SolidLSPSettings
+
+    (tmp_path / "x.py").write_text("def hello() -> int:\n    return 1\n")
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = PylspServer(cfg, str(tmp_path), SolidLSPSettings())
+    with srv.start_server():
+        symbols = srv.request_document_symbols("x.py")
+        assert any("hello" in str(s) for s in symbols), symbols
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t3_pylsp_server_spawn.py -v
+```
+
+Expected: import + subclass + identity tests FAIL with `ModuleNotFoundError`. The boot test fails too if pylsp is installed; otherwise it skips.
+
+- [ ] **Step 2: Write minimal implementation**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/solidlsp/language_servers/pylsp_server.py`:
+
+```python
+"""python-lsp-server (pylsp) + pylsp-rope adapter — Stage 1E §14.1 file 15.
+
+Launches ``python -m pylsp --check-parent-process`` over stdio. The
+``pylsp-rope`` plugin is auto-discovered when installed in the same
+interpreter (entry-point group ``pylsp``); no extra wiring required at
+the LSP level.
+
+This module ships in two stages:
+  - T3 (this file): spawn + initialize + facade conformance.
+  - T4 (next file revision): override ``execute_command`` to drain
+    ``workspace/applyEdit`` payloads emitted *during* command execution
+    (Phase 0 P1 finding — pylsp-rope ships its inline/refactor
+    ``WorkspaceEdit`` via the reverse-request channel).
+
+pylsp-mypy is DELIBERATELY NOT enabled here — Phase 0 P5a verdict C.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import pathlib
+import sys
+from typing import Any, cast
+
+from overrides import override
+
+from solidlsp.ls import SolidLanguageServer
+from solidlsp.ls_config import LanguageServerConfig
+from solidlsp.lsp_protocol_handler.lsp_types import InitializeParams
+from solidlsp.lsp_protocol_handler.server import ProcessLaunchInfo
+from solidlsp.settings import SolidLSPSettings
+
+log = logging.getLogger(__name__)
+
+
+class PylspServer(SolidLanguageServer):
+    """python-lsp-server adapter (with pylsp-rope plugin auto-discovered)."""
+
+    def __init__(
+        self,
+        config: LanguageServerConfig,
+        repository_root_path: str,
+        solidlsp_settings: SolidLSPSettings,
+    ) -> None:
+        # Use ``sys.executable -m pylsp`` rather than the bare ``pylsp`` entry
+        # point so the Stage 1E interpreter discovery (T8) can override which
+        # Python pylsp-rope sees by swapping the launch command.
+        super().__init__(
+            config,
+            repository_root_path,
+            ProcessLaunchInfo(
+                cmd=f"{sys.executable} -m pylsp --check-parent-process",
+                cwd=repository_root_path,
+            ),
+            "python",
+            solidlsp_settings,
+        )
+
+    @override
+    def is_ignored_dirname(self, dirname: str) -> bool:
+        return super().is_ignored_dirname(dirname) or dirname in (
+            "venv",
+            ".venv",
+            "__pycache__",
+            ".tox",
+            ".mypy_cache",
+            ".ruff_cache",
+        )
+
+    @staticmethod
+    def _get_initialize_params(repository_absolute_path: str) -> InitializeParams:
+        """Standard pylsp InitializeParams — mirrors jedi_server.py shape."""
+        root_uri = pathlib.Path(repository_absolute_path).as_uri()
+        params: dict[str, Any] = {
+            "processId": os.getpid(),
+            "clientInfo": {"name": "Serena", "version": "0.1.0"},
+            "locale": "en",
+            "rootPath": repository_absolute_path,
+            "rootUri": root_uri,
+            "capabilities": {
+                "workspace": {
+                    "applyEdit": True,
+                    "workspaceEdit": {
+                        "documentChanges": True,
+                        "resourceOperations": ["create", "rename", "delete"],
+                        "failureHandling": "textOnlyTransactional",
+                    },
+                    "configuration": True,
+                    "didChangeConfiguration": {"dynamicRegistration": True},
+                    "executeCommand": {"dynamicRegistration": True},
+                },
+                "textDocument": {
+                    "publishDiagnostics": {
+                        "relatedInformation": True,
+                        "tagSupport": {"valueSet": [1, 2]},
+                    },
+                    "synchronization": {
+                        "dynamicRegistration": True,
+                        "willSave": False,
+                        "willSaveWaitUntil": False,
+                        "didSave": True,
+                    },
+                    "codeAction": {
+                        "dynamicRegistration": True,
+                        "isPreferredSupport": True,
+                        "disabledSupport": True,
+                        "dataSupport": True,
+                        "resolveSupport": {"properties": ["edit"]},
+                        "codeActionLiteralSupport": {
+                            "codeActionKind": {
+                                "valueSet": [
+                                    "",
+                                    "quickfix",
+                                    "refactor",
+                                    "refactor.extract",
+                                    "refactor.inline",
+                                    "refactor.rewrite",
+                                    "source",
+                                    "source.organizeImports",
+                                ]
+                            }
+                        },
+                    },
+                    "rename": {"dynamicRegistration": True, "prepareSupport": True},
+                },
+            },
+            "initializationOptions": {
+                # pylsp-rope is auto-discovered; only declare plugin
+                # toggles that override defaults. Keep the surface small
+                # to minimize churn in v1.1.
+                "pylsp": {
+                    "plugins": {
+                        # P5a: pylsp-mypy is dropped at MVP — disable
+                        # explicitly even though it is not installed,
+                        # so installing it later does not silently
+                        # re-activate behaviour scalpel does not test.
+                        "pylsp_mypy": {"enabled": False},
+                    }
+                }
+            },
+            "workspaceFolders": [
+                {"uri": root_uri, "name": pathlib.Path(repository_absolute_path).name}
+            ],
+        }
+        return cast(InitializeParams, params)
+```
+
+- [ ] **Step 3: Re-run tests, expect green (3/3 PASS, 1 SKIP if no pylsp)**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t3_pylsp_server_spawn.py -v
+```
+
+Expected: import / subclass / identity tests PASS; boot test PASSES if `pylsp` is installed (it is, because T0 installed `[python-lsps]`).
+
+- [ ] **Step 4: Refactor pass — remove duplication against `jedi_server.py`**
+
+Both adapters share ~80% of the InitializeParams shape. Extract is **out of scope for T3** (YAGNI — Stage 1E only adds two more Python adapters in T5+T6 and they have *different* shapes; the abstraction would be premature). Document the deliberate duplication in a one-line comment if not already present:
+
+```
+# Mirrors jedi_server.py InitializeParams shape; deliberately duplicated
+# rather than abstracted — only two Python LSPs use this shape (jedi/pylsp)
+# and basedpyright/ruff have meaningfully different capability sets.
+```
+
+- [ ] **Step 5: Commit T3**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/solidlsp/language_servers/pylsp_server.py test/spikes/test_stage_1e_t3_pylsp_server_spawn.py
+git commit -m "$(cat <<'EOF'
+stage-1e(t3): PylspServer adapter — spawn + initialize + facade conformance
+
+Launches python -m pylsp --check-parent-process over stdio; pylsp-rope
+plugin auto-discovered via setuptools entry point. pylsp_mypy explicitly
+disabled in initializationOptions per Phase 0 P5a.
+
+T4 will follow with the workspace/applyEdit drain in execute_command()
+that closes the Stage 1D T11 deferred concern.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T3
+```
+
+Update parent ledger and commit.
 
 ### Task 4: `pylsp_server.py` real `workspace/applyEdit` reverse-request drain
 
-_(T4 detail expanded below.)_
+**Files:**
+- Modify: `vendor/serena/src/solidlsp/language_servers/pylsp_server.py`
+- Create: `vendor/serena/test/spikes/test_stage_1e_t4_pylsp_apply_edit_drain.py`
+
+**Stage 1D T11 deferred concern:** the multi-server end-to-end test mocked the `workspace/applyEdit` reverse-request because no real adapter existed. T4 closes that concern. The base class already captures `workspace/applyEdit` payloads via the inherited handler at `ls.py:620` and exposes `pop_pending_apply_edits()`; the base `execute_command()` at `ls.py:794` already drains them and returns `(response, drained)`. The T4 work is therefore narrower than the title suggests — the base class does the heavy lifting; T4 must:
+
+1. **Verify** that `super().execute_command()` already returns the drained payloads (re-read `ls.py:794-820` to confirm shape).
+2. **Provide a typed pylsp-specific override** ONLY IF the response shape needs flattening for the `MultiServerCoordinator` consumer. Per Phase 0 P1, pylsp-rope returns `executeCommand` response = `null` and ships the `WorkspaceEdit` exclusively via the reverse-request — the merger needs the drained list.
+3. **Add a regression test** that drives a real pylsp-rope `extract_method` end-to-end and asserts the drained list is non-empty (this is the test Stage 1D T11 could not write).
+
+- [ ] **Step 1: Re-read base class to confirm what already exists**
+
+Run:
+```bash
+grep -n "def execute_command\|pop_pending_apply_edits" /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/solidlsp/ls.py
+```
+
+Expected hits at lines ~634 (`pop_pending_apply_edits`) and ~794 (`execute_command`). Read lines 794–830 to confirm the base method's signature and whether it already returns the drained edits or only the LSP response. The decision tree below branches on what you find.
+
+```bash
+sed -n '794,830p' /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/solidlsp/ls.py
+```
+
+**Branch A — base `execute_command` returns ONLY the LSP response (does NOT drain):**
+- The pylsp adapter override at T4 must call super, then call `self.pop_pending_apply_edits()`, then return a typed pair (response, drained_edits) so callers see both. Define a small dataclass `PylspExecuteCommandResult` in `pylsp_server.py`.
+
+**Branch B — base `execute_command` already returns a tuple `(response, drained)`:**
+- No override needed. T4's only deliverable is the regression test that proves the path works end-to-end against real pylsp-rope.
+
+The plan below assumes **Branch A** (the conservative case) and shows the override; if execution finds Branch B, skip step 3 and keep only the test.
+
+- [ ] **Step 2: Write failing regression test — pylsp-rope inline produces a drained ApplyEdit**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t4_pylsp_apply_edit_drain.py`:
+
+```python
+"""T4 — Real pylsp-rope command drains workspace/applyEdit (Stage 1D T11).
+
+Stage 1D T11 mocked this path because the adapter did not exist. T3
+landed the adapter; T4 proves the path is real.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+
+import pytest
+
+PYLSP_AVAILABLE = shutil.which("pylsp") is not None or os.environ.get("CI") == "true"
+
+
+@pytest.mark.skipif(not PYLSP_AVAILABLE, reason="pylsp not installed")
+def test_pylsp_inline_drains_apply_edit_payload(tmp_path: Path) -> None:
+    """Drive pylsp-rope's inline command; assert payload arrives via the
+    reverse-request channel (Phase 0 P1 finding)."""
+    from solidlsp.language_servers.pylsp_server import PylspServer
+    from solidlsp.ls_config import LanguageServerConfig, Language
+    from solidlsp.settings import SolidLSPSettings
+
+    src = tmp_path / "x.py"
+    src.write_text(
+        "def add(a: int, b: int) -> int:\n"
+        "    return a + b\n"
+        "\n"
+        "_TEST_CALL = add(1, 2)\n"
+    )
+
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = PylspServer(cfg, str(tmp_path), SolidLSPSettings())
+    with srv.start_server():
+        # Open the document so pylsp's in-memory buffer is populated.
+        srv.open_text_document("x.py")
+
+        # Request inline at the call site (line 3, char 13: the "add" in
+        # "add(1, 2)"). pylsp-rope returns a code action whose data
+        # carries the executeCommand id.
+        actions = srv.request_code_actions(
+            "x.py",
+            start={"line": 3, "character": 13},
+            end={"line": 3, "character": 13},
+            only=["refactor.inline"],
+        )
+        rope_inline = next((a for a in actions if "Inline" in a.get("title", "")), None)
+        assert rope_inline is not None, f"no inline action surfaced: {actions}"
+
+        # Resolve to get the executeCommand spec.
+        resolved = srv.resolve_code_action(rope_inline)
+        cmd = resolved.get("command") or {}
+        assert cmd.get("command"), f"no command on resolved action: {resolved}"
+
+        # Drive the executeCommand — adapter MUST drain applyEdit payloads.
+        result = srv.execute_command(cmd["command"], cmd.get("arguments", []))
+        # Branch A: result is the typed pair; Branch B: drain via facade.
+        if isinstance(result, tuple) and len(result) == 2:
+            _response, drained = result
+        else:
+            drained = srv.pop_pending_apply_edits()
+
+        assert drained, "pylsp-rope inline must produce at least one applyEdit"
+        edit0 = drained[0].get("edit") or {}
+        # WorkspaceEdit shape: {documentChanges: [...]} OR {changes: {...}}.
+        assert "documentChanges" in edit0 or "changes" in edit0, edit0
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t4_pylsp_apply_edit_drain.py -v
+```
+
+Expected: FAIL on the `assert drained, ...` line (or earlier if Branch A shape is wrong). This is the red bar.
+
+- [ ] **Step 3: Add the override (Branch A only)**
+
+Append to `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/solidlsp/language_servers/pylsp_server.py`:
+
+```python
+
+
+# ---------------------------------------------------------------------------
+# T4: workspace/applyEdit drain — close Stage 1D T11 deferred concern.
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass
+from typing import Any as _AnyT
+
+
+@dataclass(frozen=True, slots=True)
+class PylspExecuteCommandResult:
+    """Typed return of ``PylspServer.execute_command``.
+
+    Per Phase 0 P1, pylsp-rope returns ``null`` from the ``executeCommand``
+    response and ships its ``WorkspaceEdit`` exclusively via the
+    ``workspace/applyEdit`` reverse-request channel. ``MultiServerCoordinator``
+    needs both pieces — the response so callers can detect server-reported
+    errors, and the drained edits so the merger has WorkspaceEdits to merge.
+    """
+
+    response: _AnyT
+    drained_apply_edits: list[dict[str, _AnyT]]
+
+
+def _patch_execute_command_drain() -> None:
+    """Install the override on ``PylspServer.execute_command``.
+
+    Defined as a module-level function so the override is testable in
+    isolation (Stage 1F may swap the drain shape; the function is the
+    single chokepoint).
+    """
+
+    base_execute = SolidLanguageServer.execute_command
+
+    def execute_command(  # type: ignore[no-untyped-def]
+        self: PylspServer,
+        name: str,
+        args: list[_AnyT] | None = None,
+    ) -> PylspExecuteCommandResult:
+        # Base.execute_command already drains via pop_pending_apply_edits()
+        # *internally* on Stage 1A T2's code path; we re-drain here (no-op
+        # if base already drained) to surface the payload to the caller.
+        response = base_execute(self, name, args)
+        drained = self.pop_pending_apply_edits()
+        return PylspExecuteCommandResult(response=response, drained_apply_edits=drained)
+
+    PylspServer.execute_command = execute_command  # type: ignore[method-assign]
+
+
+_patch_execute_command_drain()
+```
+
+> **Important:** if step 1 found Branch B (base already returns a tuple), the override above must be SKIPPED and the test simplified to unpack the tuple directly. The plan deliberately documents both branches because the base behaviour was last touched in Stage 1A T2 (see `ls.py:794`); the executing agent must verify before patching.
+
+- [ ] **Step 4: Re-run test, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t4_pylsp_apply_edit_drain.py -v
+```
+
+Expected: 1/1 PASS (or SKIP if pylsp absent). Cross-check by also re-running T3:
+
+```bash
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t3_pylsp_server_spawn.py test/spikes/test_stage_1e_t4_pylsp_apply_edit_drain.py -v
+```
+
+Expected: 4 passed, 0 failed (skips OK).
+
+- [ ] **Step 5: Cross-check against `MultiServerCoordinator`**
+
+Run a quick consumer-side sanity check — does the coordinator know what to do with the new typed return?
+
+```bash
+grep -n "execute_command\|drained_apply_edits\|PylspExecuteCommandResult" /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/refactoring/multi_server.py
+```
+
+If the coordinator only sees `execute_command` returning a bare value, T7 (PythonStrategy wiring) will need to unpack the typed result before handing it to the coordinator. Note this in T7's design — it is NOT a defect in T4. T4's contract is "pylsp callers receive both response + drained edits"; T7 owns the bridge to the coordinator.
+
+- [ ] **Step 6: Commit T4**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/solidlsp/language_servers/pylsp_server.py test/spikes/test_stage_1e_t4_pylsp_apply_edit_drain.py
+git commit -m "$(cat <<'EOF'
+stage-1e(t4): pylsp execute_command drains workspace/applyEdit (close 1D T11)
+
+Adds typed PylspExecuteCommandResult exposing both the executeCommand
+response (often null per P1) and the drained workspace/applyEdit payloads
+that pylsp-rope ships via the reverse-request channel.
+
+End-to-end test drives real pylsp-rope inline against a temp project and
+asserts the drained list is non-empty — the regression Stage 1D T11 could
+not write without this adapter.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T4
+```
+
+Update parent ledger and commit.
 
 ### Task 5: `basedpyright_server.py` adapter — pull-mode diagnostic
 
