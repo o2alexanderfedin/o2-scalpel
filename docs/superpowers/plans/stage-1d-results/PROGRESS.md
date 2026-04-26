@@ -17,7 +17,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | T7  | §11.7 four invariants (apply / ast.parse / disabled / boundary)        | `82685365` | OK | — |
 | T8  | `merge_rename()` + P6 whole-file ↔ surgical reconciliation             | `2a04d84c` | OK | — |
 | T9  | provenance + edit-attribution log (§11.4 + §11.5) + replay             | `2bb49de2` | OK | — |
-| T10 | §11.2 six server-disagreement cases                                    | _pending_ | _pending_ | — |
+| T10 | §11.2 six server-disagreement cases                                    | `8ed2d154` | OK_PARTIAL | Dropped 4 integration tests requiring `MergeCodeActionsResult.warnings` wrapper API. T6's `merge_code_actions` returns bare `list[MergedCodeAction]`; refactoring to add the wrapper would touch T6+T7 contracts. T11 e2e covers the §11.2 case-4 timeout / case-3 disabled / case-6 byte-identical paths via `MultiServerBroadcastResult.timeouts` directly. Deferred wrapper API to Stage 1E facade layer. |
 | T11 | E2E: 3-fake-server P2 + P6 + auto-import replay                        | _pending_ | _pending_ | — |
 | T12 | Submodule ff-merge to main + parent pointer bump + tag                 | _pending_ | _pending_ | — |
 
