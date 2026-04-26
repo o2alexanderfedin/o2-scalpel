@@ -2,8 +2,8 @@
 
 | Task | Branch SHA (submodule) | Outcome | Follow-ups |
 |---|---|---|---|
-| T0 | f9c71345 (entry) | OPEN | bootstrap |
-| T1 | | | |
+| T0 | 8cd2869b | DONE | e2e marker registered |
+| T1 | 599f3471 | DONE | conftest + fixtures + 4-test smoke green |
 | T2 | | | |
 | T3 | | | |
 | T4 | | | |
