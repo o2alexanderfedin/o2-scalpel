@@ -3213,4 +3213,364 @@ Expected: T8 row reads OK — 5/5 green; submodule pointer bumped.
 
 ---
 
+### Task 9: `tools/__init__.py` re-export + integration smoke + ledger close + ff-merge + tag
+
+**Files:**
+- Modify: `vendor/serena/src/serena/tools/__init__.py`
+- Create: `vendor/serena/test/spikes/test_stage_1g_t9_tool_discovery.py`
+- Modify: `docs/superpowers/plans/stage-1g-results/PROGRESS.md` (close)
+- Modify: parent + submodule branches (ff-merge to main / develop, tag).
+
+- [ ] **Step 1: Write failing integration test — all 8 tools discoverable**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t9_tool_discovery.py`:
+
+```python
+"""T9 — All 8 Stage 1G tools auto-discovered + MCP-tool conversion smoke."""
+
+from __future__ import annotations
+
+import re
+from unittest.mock import MagicMock
+
+import pytest
+
+
+EXPECTED_NAMES: frozenset[str] = frozenset({
+    "scalpel_capabilities_list",
+    "scalpel_capability_describe",
+    "scalpel_apply_capability",
+    "scalpel_dry_run_compose",
+    "scalpel_rollback",
+    "scalpel_transaction_rollback",
+    "scalpel_workspace_health",
+    "scalpel_execute_command",
+})
+
+
+def test_all_eight_tools_appear_in_iter_subclasses() -> None:
+    from serena.tools import (  # noqa: F401 — populates Tool subclass registry
+        ScalpelApplyCapabilityTool,
+        ScalpelCapabilitiesListTool,
+        ScalpelCapabilityDescribeTool,
+        ScalpelDryRunComposeTool,
+        ScalpelExecuteCommandTool,
+        ScalpelRollbackTool,
+        ScalpelTransactionRollbackTool,
+        ScalpelWorkspaceHealthTool,
+    )
+    from serena.tools.tools_base import Tool
+    from serena.util.inspection import iter_subclasses
+
+    discovered = {cls.get_name_from_cls() for cls in iter_subclasses(Tool)}
+    missing = EXPECTED_NAMES - discovered
+    assert not missing, f"Stage 1G tools missing from iter_subclasses: {missing}"
+
+
+def test_each_apply_docstring_is_under_thirty_words() -> None:
+    """§5.4 router-signage rule: ≤30 words per apply docstring."""
+    from serena.tools import (
+        ScalpelApplyCapabilityTool,
+        ScalpelCapabilitiesListTool,
+        ScalpelCapabilityDescribeTool,
+        ScalpelDryRunComposeTool,
+        ScalpelExecuteCommandTool,
+        ScalpelRollbackTool,
+        ScalpelTransactionRollbackTool,
+        ScalpelWorkspaceHealthTool,
+    )
+
+    classes = [
+        ScalpelApplyCapabilityTool,
+        ScalpelCapabilitiesListTool,
+        ScalpelCapabilityDescribeTool,
+        ScalpelDryRunComposeTool,
+        ScalpelExecuteCommandTool,
+        ScalpelRollbackTool,
+        ScalpelTransactionRollbackTool,
+        ScalpelWorkspaceHealthTool,
+    ]
+    for cls in classes:
+        doc = cls.apply.__doc__ or ""
+        # Drop the param/return docstring section if present.
+        head = doc.split(":param", 1)[0].split(":return", 1)[0]
+        word_count = len(re.findall(r"\b\w+\b", head))
+        assert word_count <= 30, (
+            f"{cls.__name__}.apply docstring head exceeds 30 words "
+            f"({word_count}): {head!r}"
+        )
+
+
+def test_make_mcp_tool_succeeds_for_every_class() -> None:
+    """SerenaMCPFactory.make_mcp_tool must accept each tool unchanged."""
+    from serena.mcp import SerenaMCPFactory
+    from serena.tools.tools_base import Tool
+    from serena.util.inspection import iter_subclasses
+
+    agent = MagicMock(name="SerenaAgent")
+    # The make_mcp_tool method reads agent.get_context() — minimal stub.
+    agent.get_context.return_value = MagicMock(tool_description_overrides={})
+    for cls in iter_subclasses(Tool):
+        if cls.get_name_from_cls() not in EXPECTED_NAMES:
+            continue
+        tool = cls(agent=agent)
+        mcp_tool = SerenaMCPFactory.make_mcp_tool(tool, openai_tool_compatible=False)
+        assert mcp_tool.name == cls.get_name_from_cls()
+        assert mcp_tool.description  # docstring carried through
+
+
+def test_no_collision_with_serena_builtin_tool_names() -> None:
+    """§5.3 anti-collision: scalpel_* never reuses an existing serena name."""
+    from serena.tools.tools_base import Tool
+    from serena.util.inspection import iter_subclasses
+
+    serena_names = {
+        cls.get_name_from_cls() for cls in iter_subclasses(Tool)
+        if not cls.get_name_from_cls().startswith("scalpel_")
+    }
+    assert EXPECTED_NAMES.isdisjoint(serena_names)
+
+
+def test_no_emergency_legacy_aliases_pollute_namespace() -> None:
+    """Stage 1G ships exactly 8 scalpel_* names; nothing more."""
+    from serena.tools.tools_base import Tool
+    from serena.util.inspection import iter_subclasses
+
+    scalpel_names = {
+        cls.get_name_from_cls() for cls in iter_subclasses(Tool)
+        if cls.get_name_from_cls().startswith("scalpel_")
+    }
+    assert scalpel_names == EXPECTED_NAMES, (
+        f"Unexpected scalpel_* tools at Stage 1G close: "
+        f"{scalpel_names - EXPECTED_NAMES}"
+    )
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t9_tool_discovery.py -v
+```
+
+Expected: every test errors with `ImportError: cannot import name 'ScalpelApplyCapabilityTool' from 'serena.tools'` because the new module is not re-exported yet.
+
+- [ ] **Step 3: Add re-export to `tools/__init__.py`**
+
+Open `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/tools/__init__.py` and append the new line so the file reads (existing `# ruff: noqa` retained at top):
+
+```python
+# ruff: noqa
+from .tools_base import *
+from .file_tools import *
+from .symbol_tools import *
+from .memory_tools import *
+from .cmd_tools import *
+from .config_tools import *
+from .workflow_tools import *
+from .jetbrains_tools import *
+from .query_project_tools import *
+from .scalpel_primitives import *  # noqa: F401, F403 — Stage 1G primitive tools
+```
+
+- [ ] **Step 4: Re-run integration test, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t9_tool_discovery.py -v
+```
+
+Expected: 5/5 PASS.
+
+- [ ] **Step 5: Run full Stage 1G test suite to confirm green-bar**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_*.py -v
+```
+
+Expected: all 8 Stage 1G test files pass — totals are 7 (T0/T2) + 9 (T1) + 5 (T3-list) + 3 (T3-describe) + 5 (T4) + 6 (T5) + 6 (T6) + 6 (T7) + 5 (T8) + 5 (T9) = **57/57 PASS**. If any fail, drop back into the corresponding task and fix before continuing the close gate.
+
+- [ ] **Step 6: Run pre-existing serena regression suite to confirm no regression**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes -v
+```
+
+Expected: every Stage 1A–1F spike test that was green going into Stage 1G remains green. Stage 1F closing report had 130 + 173 + ... — verify against `docs/superpowers/plans/stage-1f-results/PROGRESS.md` final-row count. Any new failure means a Stage 1G change leaked into a Stage 1A–1F path; bisect with `git diff main -- src/serena/`.
+
+- [ ] **Step 7: Verify no production module outside `tools/` was modified**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git diff --name-only main..HEAD -- src/serena/ \
+    | grep -v '^src/serena/tools/' \
+    | tee /tmp/stage_1g_outside_tools.txt
+test ! -s /tmp/stage_1g_outside_tools.txt || {
+    echo "Stage 1G modified production files outside tools/:"
+    cat /tmp/stage_1g_outside_tools.txt
+    exit 1
+}
+```
+
+Expected: empty file. If anything else under `src/serena/` is modified, abort and revert — Stage 1G's "no Stage 1A–1F mutation" invariant is broken.
+
+- [ ] **Step 8: Commit T9 in submodule**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/__init__.py \
+        test/spikes/test_stage_1g_t9_tool_discovery.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t9): re-export scalpel_primitives + integration smoke (5/5 green)
+
+Adds 'from .scalpel_primitives import *' to serena/tools/__init__.py
+so SerenaMCPFactory._set_mcp_tools (mcp.py:254) auto-discovers all 8
+Stage 1G primitive tools via iter_subclasses(Tool). Integration smoke
+asserts: every expected scalpel_* name in the registry; every apply()
+docstring head is ≤30 words (§5.4); make_mcp_tool succeeds for each;
+no name collision with the existing serena built-in tools; exactly 8
+scalpel_* tools (no rogue aliases).
+
+Stage 1G full suite green: 57/57.
+Submodule diff outside tools/: empty (Stage 1A–1F invariant holds).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+- [ ] **Step 9: ff-merge submodule feature into main and tag**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git checkout main
+git merge --ff-only feature/stage-1g-primitive-tools
+git tag -a stage-1g-primitive-tools-complete \
+    -m "Stage 1G — 8 always-on primitive/safety/diagnostics MCP tools (57/57 green)"
+git push origin main stage-1g-primitive-tools-complete
+git push origin --delete feature/stage-1g-primitive-tools  # optional cleanup
+git rev-parse HEAD  # capture for parent submodule pointer
+```
+
+Expected: ff-merge succeeds (feature was strictly built on `main`); tag pushed; remote feature branch deleted.
+
+- [ ] **Step 10: Bump submodule pointer + close PROGRESS ledger in parent**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/docs/superpowers/plans/stage-1g-results/PROGRESS.md`:
+- replace every `_pending_` SHA in T0..T9 with the corresponding submodule SHA;
+- replace every `_pending_` outcome with `OK — N/N green` (Ns from steps above);
+- append a final summary row:
+
+```markdown
+| 1G | **Stage 1G complete** | <main-tip-sha> | OK — 57/57 green; tag `stage-1g-primitive-tools-complete` | — |
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1g: ff-merge submodule + close PROGRESS ledger (57/57 green)
+
+Submodule fast-forwarded to main with tag
+'stage-1g-primitive-tools-complete'. Ledger T0..T9 closed; aggregate
+test count 57/57.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+- [ ] **Step 11: git-flow finish + push to develop**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git checkout develop
+git pull --ff-only origin develop
+git merge --no-ff feature/plan-stage-1g \
+    -m "Merge branch 'feature/plan-stage-1g' into develop"
+git branch -d feature/plan-stage-1g
+git push origin develop
+```
+
+Expected: `develop` advances by the Stage 1G plan + execution + ledger commits; remote `develop` updated.
+
+- [ ] **Step 12: Update MVP execution index — mark Stage 1G DONE**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/docs/superpowers/plans/2026-04-24-mvp-execution-index.md` row 1G:
+- replace **Plan TBD** with **DONE** + tag link.
+
+Commit + push:
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add docs/superpowers/plans/2026-04-24-mvp-execution-index.md
+git commit -m "$(cat <<'EOF'
+docs(index): mark Stage 1G DONE — 57/57 green, tag pushed
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git push origin develop
+```
+
+Expected: MVP execution index reflects the Stage 1G close; remote `develop` updated.
+
+---
+
+## Self-review checklist
+
+After all 10 tasks land green, walk this checklist before declaring Stage 1G complete:
+
+**1. Spec coverage (§5.1 13 always-on tools, scoped to Stage 1G's 8):**
+- [x] `scalpel_capabilities_list` — T3.
+- [x] `scalpel_capability_describe` — T3.
+- [x] `scalpel_apply_capability` — T4.
+- [x] `scalpel_dry_run_compose` — T5.
+- [x] `scalpel_rollback` — T6.
+- [x] `scalpel_transaction_rollback` — T6.
+- [x] `scalpel_workspace_health` — T7.
+- [x] `scalpel_execute_command` — T8.
+- The remaining 5 always-on tools (`scalpel_split_file`, `scalpel_extract`, `scalpel_inline`, `scalpel_rename`, `scalpel_imports_organize`) are explicitly Stage 2A and out of scope per the §6.2 cut line. The 13th tool (`scalpel_transaction_commit`) lands with the ergonomic facades in Stage 2A per Q2.
+
+**2. Placeholder scan:**
+- No `TODO`, `TBD`, `implement later`, `fill in details`, or `similar to Task N` strings. Every step shows actual test code AND actual implementation code.
+- Scan via:
+  ```bash
+  grep -nE 'TBD|TODO|fill in|similar to|implement later|appropriate' \
+      docs/superpowers/plans/2026-04-24-stage-1g-primitive-tools.md \
+      | grep -v '^[0-9]*:[[:space:]]*-' \
+      | grep -v 'pre-existing'
+  ```
+  Expected: no hits in step content (false positives in commit-message body or docstring text are allowed).
+
+**3. Type consistency:**
+- Every reference to a Stage 1F symbol uses the exact import path the Stage 1F plan emits (`from serena.refactoring.capabilities import CapabilityRecord, CapabilityCatalog, build_capability_catalog`) — verified in §"Forward-reference signature index (Stage 1F)".
+- `ProvenanceLiteral` re-imported from `serena.refactoring.multi_server` (its canonical source per Stage 1D + 1F).
+- `RefactorResult.checkpoint_id`, `RefactorResult.transaction_id`, `RefactorResult.preview_token`, `TransactionResult.remaining_checkpoint_ids`, `WorkspaceHealth.languages`, `LanguageHealth.capability_catalog_hash` — every name used is identical across T1, T4, T5, T6, T7.
+- `Tool.get_name_from_cls` (snake_case from class name minus `Tool` suffix) → expected names emit exactly the §5.1 surface (`Scalpel<Verb>Tool` → `scalpel_<verb>`).
+
+**4. TDD ordering:**
+- Every task starts with the failing test step before any implementation step. T9 step 1 (failing integration test) precedes T9 step 3 (the re-export that turns it green).
+
+**5. Author identity:**
+- Every `git commit -m` block uses `Co-Authored-By: AI Hive(R) <noreply@o2.services>`. Zero occurrences of `Claude` in author/co-author lines.
+
+**6. LoC budget reality-check:**
+- Production: 140 (runtime) + 150 (schemas) + 600 (primitives, summed across T3..T8) + 3 (`__init__.py` delta) = **893 LoC**, distributed roughly 70 (capabilities_list) + 60 (capability_describe) + 130 (apply_capability) + 120 (dry_run_compose) + 90 (rollback both) + 80 (workspace_health) + 80 (execute_command) + 70 (helpers `_failure_result`, `_lookup_capability`, `_is_in_workspace`, `_dispatch_via_coordinator`, `_dry_run_one_step`, `_execute_via_coordinator`, `_no_op_applier`, `_empty_diagnostics_delta`, `_build_language_health`).
+- Tests: ~1,080 LoC across 9 files.
+
+**7. Submodule discipline:**
+- T9 step 7 verifies `git diff --name-only main..HEAD -- src/serena/ | grep -v '^src/serena/tools/'` is empty — proves Stage 1G did not mutate any Stage 1A–1F production module.
 
