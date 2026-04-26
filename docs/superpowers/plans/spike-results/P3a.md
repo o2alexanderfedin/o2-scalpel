@@ -2,8 +2,8 @@
 
 **Pin:** `basedpyright==1.39.3` ([Q3 resolution](../../design/mvp/open-questions/q3-basedpyright-pinning.md))
 
-**Errors (total):** 1  |  **Warnings (total):** 2
-**Errors (excluding `_pep_syntax.py`):** 0  |  **Warnings (excl.):** 1
+**Errors (total):** 2  |  **Warnings (total):** 2
+**Errors (excluding `_pep_syntax.py`):** 1  |  **Warnings (excl.):** 1
 **Intentional-fixture diagnostics:** 2
 
 **Sample diagnostics (first 3):**
@@ -17,16 +17,16 @@
     "message": "Function \"_private_helper\" is not accessed"
   },
   {
+    "severity": "error",
+    "file": "__init__.py",
+    "rule": "reportAssignmentType",
+    "message": "Type \"None\" is not assignable to declared type \"int\"\n\u00a0\u00a0\"None\" is not assignable to \"int\""
+  },
+  {
     "severity": "warning",
     "file": "_pep_syntax.py",
     "rule": "reportUnusedVariable",
     "message": "Variable \"eg\" is not accessed"
-  },
-  {
-    "severity": "error",
-    "file": "_pep_syntax.py",
-    "rule": null,
-    "message": "\"return\" is not allowed in an \"except*\" block"
   }
 ]
 ```
@@ -42,6 +42,6 @@ a `pyrightconfig.json` to exclude one file, this spike runs the full seed
 root and PARTITIONS diagnostics; errors outside `_pep_syntax.py` define the
 green-bar baseline.
 
-**Decision:** BASELINE ESTABLISHED: 0 errors outside _pep_syntax.py. Re-run at Stage 1H against full calcpy.
+**Decision:** BASELINE ISSUE: 1 unexpected error(s) outside _pep_syntax.py.
 
 **Re-run scope (Stage 1H):** full calcpy suite + sub-fixtures, same partitioning rule.
