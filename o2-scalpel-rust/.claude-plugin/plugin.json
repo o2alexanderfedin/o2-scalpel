@@ -1,0 +1,13 @@
+{
+  "author": {
+    "email": null,
+    "name": "AI Hive(R)",
+    "url": null
+  },
+  "description": "Scalpel refactor MCP server for Rust via rust-analyzer",
+  "homepage": "https://github.com/o2services/o2-scalpel",
+  "license": "MIT",
+  "name": "o2-scalpel-rust",
+  "repository": "https://github.com/o2services/o2-scalpel",
+  "version": "1.0.0"
+}

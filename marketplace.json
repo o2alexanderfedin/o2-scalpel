@@ -1,0 +1,25 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "metadata": {
+    "license": "MIT",
+    "version": "1.0.0"
+  },
+  "name": "o2-scalpel",
+  "owner": {
+    "email": null,
+    "name": "AI Hive(R)",
+    "url": null
+  },
+  "plugins": [
+    {
+      "description": "Scalpel refactor MCP server for Python via pylsp",
+      "name": "o2-scalpel-python",
+      "source": "./o2-scalpel-python"
+    },
+    {
+      "description": "Scalpel refactor MCP server for Rust via rust-analyzer",
+      "name": "o2-scalpel-rust",
+      "source": "./o2-scalpel-rust"
+    }
+  ]
+}
