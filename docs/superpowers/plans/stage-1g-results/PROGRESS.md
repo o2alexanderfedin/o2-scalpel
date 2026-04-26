@@ -11,7 +11,7 @@ Parent branch: `feature/stage-1g-primitive-tools`
 | T2 | scalpel_runtime.py — ScalpelRuntime singleton       | 75be9fa2 | OK — 7/7 green | LanguageStrategy ctor takes pool: LspPool (plan deviation; documented in commit) |
 | T3 | ScalpelCapabilitiesListTool + CapabilityDescribeTool| 6eef844e | OK — 8/8 green | — |
 | T4 | ScalpelApplyCapabilityTool                          | ec5ac696 | OK — 5/5 green | merge_code_actions sig adapted (plan deviation) |
-| T5 | ScalpelDryRunComposeTool                            | _pending_ | _pending_ | — |
+| T5 | ScalpelDryRunComposeTool                            | c089c286 | OK — 6/6 green | txn_ prefix added in tool layer (plan deviation) |
 | T6 | ScalpelRollbackTool + TransactionRollbackTool       | _pending_ | _pending_ | — |
 | T7 | ScalpelWorkspaceHealthTool                          | _pending_ | _pending_ | — |
 | T8 | ScalpelExecuteCommandTool                           | _pending_ | _pending_ | — |
