@@ -907,4 +907,343 @@ Expected: T1 row reads OK — 9/9 green; submodule pointer bumped.
 
 ---
 
+### Task 2: `scalpel_runtime.py` — `ScalpelRuntime` singleton
+
+**Files:**
+- Create: `vendor/serena/src/serena/tools/scalpel_runtime.py`
+- Create: `vendor/serena/test/spikes/test_stage_1g_t0_runtime_singleton.py` (T0/T2 share file; numbered after the runtime task it tests, mirroring Stage 1E convention)
+
+- [ ] **Step 1: Write failing test — singleton + lazy catalog + reset**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t0_runtime_singleton.py`:
+
+```python
+"""T2 — ScalpelRuntime singleton: lazy catalog, per-language pool, reset."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def test_singleton_is_idempotent() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    a = ScalpelRuntime.instance()
+    b = ScalpelRuntime.instance()
+    assert a is b
+
+
+def test_catalog_is_lazy_and_cached() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+    from serena.refactoring.capabilities import CapabilityCatalog
+
+    rt = ScalpelRuntime.instance()
+    cat_a = rt.catalog()
+    cat_b = rt.catalog()
+    assert isinstance(cat_a, CapabilityCatalog)
+    assert cat_a is cat_b  # cached, identity-equal
+
+
+def test_checkpoint_store_lru_50() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+    from serena.refactoring import CheckpointStore
+
+    store = ScalpelRuntime.instance().checkpoint_store()
+    assert isinstance(store, CheckpointStore)
+    # Stage 1B precedent: default capacity 50.
+    assert store._capacity == 50  # type: ignore[attr-defined]
+
+
+def test_transaction_store_lru_20_and_bound_to_checkpoint_store() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+    from serena.refactoring import TransactionStore
+
+    rt = ScalpelRuntime.instance()
+    txn_store = rt.transaction_store()
+    assert isinstance(txn_store, TransactionStore)
+    assert txn_store._capacity == 20  # type: ignore[attr-defined]
+    # Bound to the same checkpoint store the runtime exposes.
+    assert txn_store._checkpoints is rt.checkpoint_store()  # type: ignore[attr-defined]
+
+
+def test_pool_for_returns_same_instance_per_key(tmp_path: Path) -> None:
+    from solidlsp.ls_config import Language
+
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    rt = ScalpelRuntime.instance()
+    pool_a = rt.pool_for(Language.PYTHON, tmp_path)
+    pool_b = rt.pool_for(Language.PYTHON, tmp_path)
+    assert pool_a is pool_b
+
+
+def test_pool_for_returns_distinct_instance_per_language(tmp_path: Path) -> None:
+    from solidlsp.ls_config import Language
+
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    rt = ScalpelRuntime.instance()
+    py = rt.pool_for(Language.PYTHON, tmp_path)
+    rs = rt.pool_for(Language.RUST, tmp_path)
+    assert py is not rs
+
+
+def test_reset_for_testing_clears_singleton(tmp_path: Path) -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    a = ScalpelRuntime.instance()
+    a.checkpoint_store()  # touch lazy state
+    ScalpelRuntime.reset_for_testing()
+    b = ScalpelRuntime.instance()
+    assert a is not b
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t0_runtime_singleton.py -v
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Expected: every test errors at collection with `ModuleNotFoundError: No module named 'serena.tools.scalpel_runtime'`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/tools/scalpel_runtime.py`:
+
+```python
+"""Stage 1G — ``ScalpelRuntime`` singleton.
+
+The runtime owns the *process-global* state the 8 primitive tools share:
+
+  - ``CheckpointStore`` (LRU 50, Stage 1B default).
+  - ``TransactionStore`` (LRU 20, bound to the above CheckpointStore).
+  - ``LspPool`` per ``(Language, project_root)`` key (Stage 1C).
+  - ``CapabilityCatalog`` cached after first ``catalog()`` call (Stage 1F).
+  - ``MultiServerCoordinator`` factory keyed by ``Language`` (Stage 1D).
+
+Process-global is justified because:
+  - Tools are constructed by the MCP factory once per server lifetime.
+  - The pool, stores, and catalog are themselves designed to be shared
+    across tools (Stage 1B/1C/1F all assert process-global semantics).
+  - Tests use ``reset_for_testing()`` to restore between cases.
+
+Thread-safe via a single ``threading.Lock``. Lazy: nothing is built
+until the first call.
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar
+
+from serena.refactoring import (
+    CheckpointStore,
+    LspPool,
+    LspPoolKey,
+    MultiServerCoordinator,
+    STRATEGY_REGISTRY,
+    TransactionStore,
+)
+from serena.refactoring.capabilities import CapabilityCatalog, build_capability_catalog
+
+if TYPE_CHECKING:
+    from solidlsp.ls_config import Language
+
+
+class ScalpelRuntime:
+    """Lazy, process-global runtime shared by the 8 Stage 1G tools."""
+
+    _instance: ClassVar["ScalpelRuntime | None"] = None
+    _instance_lock: ClassVar[threading.Lock] = threading.Lock()
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._checkpoint_store: CheckpointStore | None = None
+        self._transaction_store: TransactionStore | None = None
+        self._catalog: CapabilityCatalog | None = None
+        self._pools: dict[tuple[Language, Path], LspPool] = {}
+        self._coordinators: dict[tuple[Language, Path], MultiServerCoordinator] = {}
+
+    # --- singleton accessors -----------------------------------------
+
+    @classmethod
+    def instance(cls) -> "ScalpelRuntime":
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = cls()
+            return cls._instance
+
+    @classmethod
+    def reset_for_testing(cls) -> None:
+        """Drop the singleton (and shut down any pooled servers).
+
+        Tests MUST call this in setUp/tearDown to keep state isolated.
+        Production paths MUST NOT call this.
+        """
+        with cls._instance_lock:
+            inst = cls._instance
+            if inst is not None:
+                with inst._lock:
+                    for pool in inst._pools.values():
+                        try:
+                            pool.shutdown_all()
+                        except Exception:  # pragma: no cover — best-effort
+                            pass
+            cls._instance = None
+
+    # --- lazy state --------------------------------------------------
+
+    def checkpoint_store(self) -> CheckpointStore:
+        with self._lock:
+            if self._checkpoint_store is None:
+                self._checkpoint_store = CheckpointStore()
+            return self._checkpoint_store
+
+    def transaction_store(self) -> TransactionStore:
+        with self._lock:
+            if self._transaction_store is None:
+                self._transaction_store = TransactionStore(
+                    checkpoint_store=self.checkpoint_store(),
+                )
+            return self._transaction_store
+
+    def catalog(self) -> CapabilityCatalog:
+        with self._lock:
+            if self._catalog is None:
+                self._catalog = build_capability_catalog(
+                    STRATEGY_REGISTRY, project_root=None,
+                )
+            return self._catalog
+
+    def pool_for(self, language: "Language", project_root: Path) -> LspPool:
+        from solidlsp.ls_config import Language as _Language  # noqa: F401 — runtime safety
+
+        canon_root = project_root.expanduser().resolve(strict=False)
+        key = (language, canon_root)
+        with self._lock:
+            existing = self._pools.get(key)
+            if existing is not None:
+                return existing
+            pool = LspPool(
+                spawn_fn=lambda pool_key: self._spawn_for_strategy(language, canon_root, pool_key),
+                idle_shutdown_seconds=None,
+                ram_ceiling_mb=float(os.environ.get("O2_SCALPEL_LSP_RAM_CEILING_MB", "8192")),
+                reaper_enabled=True,
+                pre_ping_on_acquire=True,
+                events_path=None,
+            )
+            self._pools[key] = pool
+            return pool
+
+    def coordinator_for(
+        self,
+        language: "Language",
+        project_root: Path,
+    ) -> MultiServerCoordinator:
+        canon_root = project_root.expanduser().resolve(strict=False)
+        key = (language, canon_root)
+        with self._lock:
+            existing = self._coordinators.get(key)
+            if existing is not None:
+                return existing
+            strategy_cls = STRATEGY_REGISTRY[language]
+            strategy = strategy_cls()  # Stage 1E strategies have no-arg constructors
+            servers = strategy.build_servers(canon_root)
+            coord = MultiServerCoordinator(servers=servers)
+            self._coordinators[key] = coord
+            return coord
+
+    # --- internal ----------------------------------------------------
+
+    def _spawn_for_strategy(
+        self,
+        language: "Language",
+        project_root: Path,
+        pool_key: LspPoolKey,
+    ) -> object:
+        """Pool spawn_fn — defers to STRATEGY_REGISTRY[language].build_servers().
+
+        Stage 1G never calls this directly; it is the callback installed
+        on the per-(language, root) ``LspPool`` constructed in
+        ``pool_for`` so that ``acquire(key)`` returns a freshly-spawned
+        ``SolidLanguageServer`` for the ``server_id`` encoded in the key.
+        """
+        strategy_cls = STRATEGY_REGISTRY[language]
+        strategy = strategy_cls()
+        servers = strategy.build_servers(project_root)
+        if pool_key.server_id not in servers:
+            raise KeyError(
+                f"Strategy for {language.value!r} has no server "
+                f"{pool_key.server_id!r}; available: {sorted(servers)}",
+            )
+        return servers[pool_key.server_id]
+
+
+__all__ = ["ScalpelRuntime"]
+```
+
+- [ ] **Step 4: Re-run tests, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t0_runtime_singleton.py -v
+```
+
+Expected: 7/7 PASS. Note: `test_pool_for_returns_distinct_instance_per_language` may issue a warning if `STRATEGY_REGISTRY` strategy constructors have side effects; the test uses `tmp_path` so any spawned server is shut down by the autouse `reset_for_testing()` fixture.
+
+- [ ] **Step 5: Commit T2**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/scalpel_runtime.py test/spikes/test_stage_1g_t0_runtime_singleton.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t2): ScalpelRuntime singleton (lazy + thread-safe) + 7/7 green
+
+Adds scalpel_runtime.py with the process-global ScalpelRuntime that
+owns the shared CheckpointStore (LRU 50), TransactionStore (LRU 20),
+per-(Language, project_root) LspPool, cached CapabilityCatalog (built
+on first access via build_capability_catalog), and MultiServerCoord
+factory. reset_for_testing() drops the singleton and shuts down any
+pooled servers — pytest fixtures use it to isolate cases.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+Then update parent ledger row T2 with the SHA + outcome `OK — 7/7 green`:
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+plan(stage-1g): T2 ledger — ScalpelRuntime landed (7/7 green)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+Expected: T2 row reads OK — 7/7 green; submodule pointer bumped.
+
+---
+
 
