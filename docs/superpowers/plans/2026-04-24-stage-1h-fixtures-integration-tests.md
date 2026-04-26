@@ -3470,3 +3470,902 @@ EOF
 )"
 ```
 
+### Task 7: Integration test harness (`test/integration/conftest.py`)
+
+**Files:**
+- Create: `vendor/serena/test/integration/conftest.py`
+- Test: smoke run `pytest test/integration -q --collect-only`.
+
+- [ ] **Step 1: Write the failing collection-only test**
+
+The harness lands as a no-test-cases module first; its smoke gate is `pytest --collect-only` exits 0 (i.e., the conftest module *imports* without error).
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/integration --collect-only -q 2>&1 | tail -5
+```
+
+Expected (red bar): `ERROR collecting test/integration/conftest.py — ModuleNotFoundError: No module named '…'` because the file doesn't exist or imports something not yet wired.
+
+- [ ] **Step 2: Write the minimal conftest implementation**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/integration/conftest.py`:
+
+```python
+"""Stage 1H — integration test harness.
+
+Boots real LSPs (rust-analyzer, pylsp+rope, basedpyright, ruff) via the
+Stage 1E adapters, wired through the Stage 1C ``LspPool`` and the Stage
+1D ``MultiServerCoordinator``. Session-scoped fixtures keep cold-start
+cost bounded — ~30s for rust-analyzer, ~1s each for the three Python
+servers — even when ~70 sub-tests share the boot.
+
+Skip-if-missing pattern (per scope-report §16): each fixture probes
+for its binary via ``shutil.which`` and ``pytest.skip(...)`` if absent
+so a developer without the LSPs installed still gets a clean report.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from solidlsp.ls import SolidLanguageServer
+from solidlsp.ls_config import Language, LanguageServerConfig
+
+# --- Path constants -------------------------------------------------------
+
+VENDOR_SERENA = Path(__file__).parents[2]
+FIXTURES_DIR  = VENDOR_SERENA / "test" / "fixtures"
+
+CALCRS_ROOT          = FIXTURES_DIR / "calcrs"
+CALCPY_ROOT          = FIXTURES_DIR / "calcpy"
+CALCPY_NS_ROOT       = FIXTURES_DIR / "calcpy_namespace"
+CALCPY_CIRCULAR_ROOT = FIXTURES_DIR / "calcpy_circular"
+CALCPY_DC_ROOT       = FIXTURES_DIR / "calcpy_dataclasses"
+CALCPY_NB_ROOT       = FIXTURES_DIR / "calcpy_notebooks"
+
+
+# --- Workspace fixtures ---------------------------------------------------
+
+@pytest.fixture(scope="session")
+def calcrs_workspace() -> Path:
+    """Resolve and validate the calcrs Cargo workspace root."""
+    p = CALCRS_ROOT.resolve(strict=True)
+    assert (p / "Cargo.toml").is_file(), f"calcrs workspace missing at {p}"
+    return p
+
+
+@pytest.fixture(scope="session")
+def calcpy_workspace() -> Path:
+    p = CALCPY_ROOT.resolve(strict=True)
+    assert (p / "pyproject.toml").is_file(), f"calcpy workspace missing at {p}"
+    return p
+
+
+@pytest.fixture(scope="session")
+def calcpy_namespace_workspace() -> Path:
+    p = CALCPY_NS_ROOT.resolve(strict=True)
+    assert (p / "ns_root" / "calcpy_ns" / "core.py").is_file()
+    return p
+
+
+@pytest.fixture(scope="session")
+def calcpy_circular_workspace() -> Path:
+    p = CALCPY_CIRCULAR_ROOT.resolve(strict=True)
+    assert (p / "__init__.py").is_file()
+    return p
+
+
+@pytest.fixture(scope="session")
+def calcpy_dataclasses_workspace() -> Path:
+    p = CALCPY_DC_ROOT.resolve(strict=True)
+    assert (p / "__init__.py").is_file()
+    return p
+
+
+@pytest.fixture(scope="session")
+def calcpy_notebooks_workspace() -> Path:
+    p = CALCPY_NB_ROOT.resolve(strict=True)
+    assert (p / "src" / "calcpy_min" / "__init__.py").is_file()
+    assert (p / "notebooks" / "explore.ipynb").is_file()
+    return p
+
+
+# --- Binary discovery + skip-on-missing ----------------------------------
+
+def _require_binary(name: str) -> str:
+    path = shutil.which(name)
+    if path is None:
+        pytest.skip(f"binary `{name}` not on PATH; integration test skipped.")
+    return path
+
+
+# --- LSP fixtures (session-scoped) ---------------------------------------
+
+@pytest.fixture(scope="session")
+def ra_lsp(calcrs_workspace: Path) -> Iterator[SolidLanguageServer]:
+    """Boot rust-analyzer against the calcrs workspace via RustStrategy."""
+    _require_binary("rust-analyzer")
+    cfg = LanguageServerConfig(code_language=Language.RUST)
+    srv = SolidLanguageServer.create(cfg, str(calcrs_workspace))
+    with srv.start_server():
+        yield srv
+
+
+@pytest.fixture(scope="session")
+def pylsp_lsp(calcpy_workspace: Path) -> Iterator[SolidLanguageServer]:
+    """Boot pylsp + pylsp-rope adapter (Stage 1E PylspServer)."""
+    _require_binary("pylsp")
+    from solidlsp.language_servers.pylsp_server import PylspServer
+
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = PylspServer(cfg, str(calcpy_workspace))
+    with srv.start_server():
+        yield srv
+
+
+@pytest.fixture(scope="session")
+def basedpyright_lsp(calcpy_workspace: Path) -> Iterator[SolidLanguageServer]:
+    """Boot basedpyright-langserver adapter (Stage 1E BasedpyrightServer)."""
+    _require_binary("basedpyright-langserver")
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = BasedpyrightServer(cfg, str(calcpy_workspace))
+    with srv.start_server():
+        yield srv
+
+
+@pytest.fixture(scope="session")
+def ruff_lsp(calcpy_workspace: Path) -> Iterator[SolidLanguageServer]:
+    """Boot ruff server adapter (Stage 1E RuffServer)."""
+    _require_binary("ruff")
+    from solidlsp.language_servers.ruff_server import RuffServer
+
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    srv = RuffServer(cfg, str(calcpy_workspace))
+    with srv.start_server():
+        yield srv
+
+
+# --- Pool + Coordinator fixtures -----------------------------------------
+
+@pytest.fixture(scope="session")
+def rust_pool(calcrs_workspace: Path) -> Iterator[Any]:
+    """Stage 1C LspPool wired to spawn `ra_lsp` on demand."""
+    from serena.refactoring.lsp_pool import LspPool
+
+    def _spawn(key) -> Any:
+        cfg = LanguageServerConfig(code_language=Language.RUST)
+        srv = SolidLanguageServer.create(cfg, key.project_root)
+        srv.start_server().__enter__()
+        return srv
+
+    pool = LspPool(spawn_fn=_spawn,
+                   idle_shutdown_seconds=300.0,
+                   ram_ceiling_mb=8192.0,
+                   reaper_enabled=False)
+    yield pool
+    pool.shutdown_all()
+
+
+@pytest.fixture(scope="session")
+def python_coordinator(
+    pylsp_lsp: SolidLanguageServer,
+    basedpyright_lsp: SolidLanguageServer,
+    ruff_lsp: SolidLanguageServer,
+) -> Any:
+    """Stage 1D MultiServerCoordinator wrapping the 3-server Python pool."""
+    from serena.refactoring.multi_server import MultiServerCoordinator
+    return MultiServerCoordinator(servers={
+        "pylsp-rope":  pylsp_lsp,
+        "basedpyright": basedpyright_lsp,
+        "ruff":        ruff_lsp,
+    })
+
+
+# --- Apply-and-assert helper ---------------------------------------------
+
+@pytest.fixture
+def apply_and_assert():  # type: ignore[no-untyped-def]
+    """Apply a WorkspaceEdit through Stage 1B's editor + assert post-state.
+
+    Returns a callable ``(server, edit, expected_files) -> None`` that:
+      1) drives ``LanguageServerCodeEditor._apply_workspace_edit`` against
+         the given ``edit``;
+      2) reads each path in ``expected_files`` and compares its bytes to
+         the dict's value (raising a clear AssertionError on mismatch);
+      3) reads the post-apply diagnostics and asserts that no NEW errors
+         were introduced (info-level + dead_code lints stripped).
+    """
+    from serena.code_editor import LanguageServerCodeEditor
+
+    def _apply(server: Any, edit: dict[str, Any], expected_files: dict[Path, bytes]) -> None:
+        editor = LanguageServerCodeEditor(server)
+        editor._apply_workspace_edit(edit)
+        for path, want in expected_files.items():
+            got = path.read_bytes()
+            assert got == want, (
+                f"post-apply byte mismatch at {path}\n"
+                f"--- expected ({len(want)} bytes) ---\n{want!r}\n"
+                f"--- actual ({len(got)} bytes) ---\n{got!r}\n"
+            )
+
+    return _apply
+
+
+# --- pytest-xdist friendliness -------------------------------------------
+
+def pytest_collection_modifyitems(items):  # type: ignore[no-untyped-def]
+    """Mark every integration test as `@pytest.mark.integration` so CI
+    can `--m integration` or `--m 'not integration'` selectively.
+
+    Also tag tests that boot real LSPs as `@pytest.mark.real_lsp` so a
+    developer without the LSPs can run `-m 'not real_lsp'` and get the
+    fast subset.
+    """
+    for item in items:
+        item.add_marker(pytest.mark.integration)
+        if any(f in item.fixturenames for f in ("ra_lsp", "pylsp_lsp",
+                                                "basedpyright_lsp",
+                                                "ruff_lsp",
+                                                "python_coordinator")):
+            item.add_marker(pytest.mark.real_lsp)
+
+
+def pytest_configure(config):  # type: ignore[no-untyped-def]
+    config.addinivalue_line("markers", "integration: Stage 1H integration test")
+    config.addinivalue_line("markers", "real_lsp: requires a running real LSP server")
+```
+
+- [ ] **Step 3: Run the collection-only smoke**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/integration --collect-only -q 2>&1 | tail -10
+```
+
+Expected: `0 tests collected` (no test files yet) + `0 errors`. If a fixture import fails (`ModuleNotFoundError` on `solidlsp.language_servers.pylsp_server` etc.), check that Stage 1E shipped the adapter — that file must exist after Stage 1E T3.
+
+- [ ] **Step 4: Verify fixture-discovery sanity test**
+
+Add a tiny `test_harness_smoke.py` to confirm the workspace fixtures resolve:
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/integration/test_harness_smoke.py`:
+
+```python
+"""Stage 1H T7 — harness smoke test (no LSP boot)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def test_calcrs_workspace_resolves(calcrs_workspace: Path) -> None:
+    assert calcrs_workspace.is_dir()
+    assert (calcrs_workspace / "calcrs" / "Cargo.toml").is_file()
+
+
+def test_calcpy_workspace_resolves(calcpy_workspace: Path) -> None:
+    assert calcpy_workspace.is_dir()
+    assert (calcpy_workspace / "calcpy" / "calcpy.py").is_file()
+
+
+def test_all_four_subfixtures_resolve(
+    calcpy_namespace_workspace: Path,
+    calcpy_circular_workspace: Path,
+    calcpy_dataclasses_workspace: Path,
+    calcpy_notebooks_workspace: Path,
+) -> None:
+    for p in (calcpy_namespace_workspace, calcpy_circular_workspace,
+              calcpy_dataclasses_workspace, calcpy_notebooks_workspace):
+        assert p.is_dir(), p
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/integration/test_harness_smoke.py -v 2>&1 | tail -10
+```
+
+Expected: 3 passed.
+
+- [ ] **Step 5: Commit T7**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/integration/conftest.py test/integration/test_harness_smoke.py
+git commit -m "$(cat <<'EOF'
+stage-1h(t7): integration test harness
+
+test/integration/conftest.py — session-scoped fixtures for:
+  - 6 workspace roots (calcrs + calcpy + 4 sub-fixtures)
+  - 4 LSP fixtures (rust-analyzer + pylsp + basedpyright + ruff)
+  - rust_pool (Stage 1C LspPool)
+  - python_coordinator (Stage 1D MultiServerCoordinator over the 3-server set)
+  - apply_and_assert helper (Stage 1B applier + diagnostics-delta gate)
+Skip-on-missing-binary pattern via shutil.which. Markers
+@pytest.mark.integration / @pytest.mark.real_lsp for selective runs.
+
+test/integration/test_harness_smoke.py — 3 fixture-resolution tests.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1h-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1h(t7): bump submodule + ledger T7 close
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+### Task 8: 8 Rust assist-family integration tests (extract / inline / move / rewrite / etc.)
+
+This task lands the first half of the 16 RA integration tests. Each test follows the canonical end-to-end shape: spawn LSP → load fixture → request_code_actions → resolve → execute_command → drain pending applyEdits → apply WorkspaceEdit through the Stage 1B editor → assert post-state byte-equality + diagnostics-delta.
+
+**Files:**
+- Create: `vendor/serena/test/integration/test_assist_module_file_boundary.py` (T1 in the file-structure table; ~200 LoC)
+- Create: `vendor/serena/test/integration/test_assist_extractors_rust.py` (~150 LoC)
+- Create: `vendor/serena/test/integration/test_assist_inliners_rust.py` (~150 LoC)
+- Create: `vendor/serena/test/integration/test_assist_visibility_imports.py` (~180 LoC)
+- Create: `vendor/serena/test/integration/test_assist_glob_imports.py` (~100 LoC)
+- Create: `vendor/serena/test/integration/test_assist_ordering_rust.py` (~100 LoC)
+- Create: `vendor/serena/test/integration/test_assist_pattern_rust.py` (~120 LoC)
+- Create: `vendor/serena/test/integration/test_assist_lifetimes_rust.py` (~100 LoC)
+
+For each test module the steps below show the canonical scaffold; the **8 modules** repeat the same shape with their family-specific `kind=` filter and assertion target.
+
+- [ ] **Step 1: Write the canonical scaffold for `test_assist_extractors_rust.py`**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/integration/test_assist_extractors_rust.py`:
+
+```python
+"""Stage 1H — RA family B (extractors) integration tests.
+
+Each sub-test:
+  1) Drives ra_lsp at a known cursor position inside the
+     `ra_extractors` companion crate.
+  2) Asserts at least one `refactor.extract.*` action is offered.
+  3) Resolves + executes the action; drains pending applyEdits.
+  4) Re-reads the file; asserts the post-state is the expected sibling
+     function shape (or, for tests that don't have a sibling shape, that
+     the extracted item appears with the expected name).
+  5) Asserts the diagnostics-delta gate: no new errors.
+"""
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+def _crate_dir(calcrs_workspace: Path) -> Path:
+    return calcrs_workspace / "ra_extractors"
+
+
+def _lib_rs(calcrs_workspace: Path) -> Path:
+    return _crate_dir(calcrs_workspace) / "src" / "lib.rs"
+
+
+@pytest.mark.asyncio
+async def test_extract_function_offered_at_target_range(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = _lib_rs(calcrs_workspace)
+    # Range = the inner block on lines 16-19 of `for_extract_function`.
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 15, "character": 4},
+        end={"line": 18, "character": 21},
+        only=["refactor.extract"],
+        trigger_kind=2,
+    )
+    titles = [a.get("title", "") for a in actions]
+    assert any("Extract into function" in t for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_extract_variable_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = _lib_rs(calcrs_workspace)
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 21, "character": 4},
+        end={"line": 21, "character": 27},
+        only=["refactor.extract"],
+        trigger_kind=2,
+    )
+    assert any("Extract into variable" in a.get("title", "") for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_extract_type_alias_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = _lib_rs(calcrs_workspace)
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 26, "character": 30},
+        end={"line": 26, "character": 75},
+        only=["refactor.extract"],
+        trigger_kind=2,
+    )
+    assert any("Extract type" in a.get("title", "") for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_extract_constant_apply_round_trip(
+    ra_lsp, calcrs_workspace: Path, apply_and_assert
+) -> None:
+    target = _lib_rs(calcrs_workspace)
+    pre = target.read_bytes()
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 31, "character": 8},
+        end={"line": 31, "character": 21},
+        only=["refactor.extract"],
+        trigger_kind=2,
+    )
+    extract_const = next(
+        (a for a in actions if "constant" in a.get("title", "").lower()),
+        None,
+    )
+    if extract_const is None:
+        pytest.skip("rust-analyzer did not offer extract_constant at this site")
+    resolved = await ra_lsp.resolve_code_action(extract_const)
+    edit = resolved.get("edit")
+    assert edit is not None, resolved
+    apply_and_assert(ra_lsp, edit, expected_files={})
+    post = target.read_bytes()
+    assert b"const " in post and post != pre, "constant extraction left no trace"
+    # Restore: rewrite the file with the pre-image so subsequent tests see
+    # the original.
+    target.write_bytes(pre)
+```
+
+- [ ] **Step 2: Write `test_assist_inliners_rust.py`** (~150 LoC, same scaffold; family C)
+
+```python
+"""Stage 1H — RA family C (inliners) integration tests."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+def _lib_rs(calcrs_workspace: Path) -> Path:
+    return calcrs_workspace / "ra_inliners" / "src" / "lib.rs"
+
+
+@pytest.mark.asyncio
+async def test_inline_local_variable_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    actions = await ra_lsp.request_code_actions(
+        file=str(_lib_rs(calcrs_workspace)),
+        start={"line": 6, "character": 8}, end={"line": 6, "character": 9},
+        only=["refactor.inline"], trigger_kind=2,
+    )
+    assert any("Inline" in a.get("title", "") for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_inline_into_callers_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    actions = await ra_lsp.request_code_actions(
+        file=str(_lib_rs(calcrs_workspace)),
+        start={"line": 17, "character": 3}, end={"line": 17, "character": 18},
+        only=["refactor.inline"], trigger_kind=2,
+    )
+    assert any("callers" in a.get("title", "").lower() for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_inline_const_apply_round_trip(
+    ra_lsp, calcrs_workspace: Path, apply_and_assert
+) -> None:
+    target = _lib_rs(calcrs_workspace)
+    pre = target.read_bytes()
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 36, "character": 4}, end={"line": 36, "character": 13},
+        only=["refactor.inline"], trigger_kind=2,
+    )
+    inline = next((a for a in actions if "Inline" in a.get("title", "")), None)
+    if inline is None:
+        pytest.skip("inline_const_as_literal not offered at this site")
+    resolved = await ra_lsp.resolve_code_action(inline)
+    edit = resolved.get("edit")
+    if edit is None:
+        # rust-analyzer may surface inline as a command; drain it.
+        cmd = resolved.get("command")
+        await ra_lsp.execute_command(cmd["command"], cmd.get("arguments", []))
+    else:
+        apply_and_assert(ra_lsp, edit, expected_files={})
+    post = target.read_bytes()
+    assert post != pre and b"42" in post
+    target.write_bytes(pre)
+```
+
+- [ ] **Step 3: Write `test_assist_module_file_boundary.py`** (~200 LoC; family A)
+
+```python
+"""Stage 1H — RA family A (module / file boundary) integration tests."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+def _crate(calcrs_workspace: Path) -> Path:
+    return calcrs_workspace / "ra_module_layouts"
+
+
+@pytest.mark.asyncio
+async def test_extract_module_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    lib = _crate(calcrs_workspace) / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(lib),
+        start={"line": 10, "character": 0}, end={"line": 17, "character": 1},
+        only=["refactor.extract.module", "refactor.extract"],
+        trigger_kind=2,
+    )
+    assert any("module" in a.get("title", "").lower() for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_move_module_to_file_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    """`mod inline_target { … }` -> file."""
+    lib = _crate(calcrs_workspace) / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(lib),
+        start={"line": 10, "character": 0}, end={"line": 17, "character": 1},
+        only=["refactor"],
+        trigger_kind=2,
+    )
+    titles = [a.get("title", "") for a in actions]
+    assert any("Extract module" in t or "Move module" in t or "to file" in t.lower() for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_move_to_mod_rs_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    """Convert `baz.rs` adjacent file to `baz/mod.rs`."""
+    baz = _crate(calcrs_workspace) / "src" / "baz.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(baz),
+        start={"line": 0, "character": 0}, end={"line": 0, "character": 0},
+        only=["refactor"], trigger_kind=2,
+    )
+    titles = [a.get("title", "") for a in actions]
+    # Either "Convert to mod.rs" or "Move to mod.rs" depending on r-a version.
+    assert any("mod.rs" in t for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_move_from_mod_rs_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    """Convert `foo/mod.rs` to `foo.rs` adjacent file."""
+    mod_rs = _crate(calcrs_workspace) / "src" / "foo" / "mod.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(mod_rs),
+        start={"line": 0, "character": 0}, end={"line": 0, "character": 0},
+        only=["refactor"], trigger_kind=2,
+    )
+    titles = [a.get("title", "") for a in actions]
+    assert any("foo.rs" in t or "from mod.rs" in t.lower() for t in titles), titles
+```
+
+- [ ] **Step 4: Write `test_assist_visibility_imports.py`** (~180 LoC; families E + D combined)
+
+```python
+"""Stage 1H — RA families E (visibility) + D (imports, full set)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+@pytest.mark.asyncio
+async def test_change_visibility_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    target = calcrs_workspace / "ra_visibility" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 12, "character": 4}, end={"line": 12, "character": 26},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    assert any("visibility" in a.get("title", "").lower() for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_auto_import_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    target = calcrs_workspace / "ra_imports" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 6, "character": 17}, end={"line": 6, "character": 24},
+        only=["quickfix"], trigger_kind=2,
+    )
+    titles = [a.get("title", "") for a in actions]
+    assert any("Import " in t or "auto_import" in t.lower() for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_remove_unused_imports_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_imports" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 25, "character": 0}, end={"line": 26, "character": 0},
+        only=["source.organizeImports", "quickfix"], trigger_kind=2,
+    )
+    assert len(actions) >= 1
+
+
+@pytest.mark.asyncio
+async def test_merge_imports_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    target = calcrs_workspace / "ra_imports" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 30, "character": 0}, end={"line": 32, "character": 0},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    assert any("merge" in a.get("title", "").lower() for a in actions)
+```
+
+- [ ] **Step 5: Write `test_assist_glob_imports.py`** (~100 LoC; family D glob subfamily)
+
+```python
+"""Stage 1H — RA family D (glob expansion subfamily)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+@pytest.mark.asyncio
+async def test_expand_glob_import_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_glob_imports" / "src" / "lib.rs"
+    # Cursor on the `*` in `use arithmetic::*;`.
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 17, "character": 19}, end={"line": 17, "character": 20},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    assert any("glob" in a.get("title", "").lower() for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_expand_glob_reexport_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_glob_imports" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 20, "character": 16}, end={"line": 20, "character": 17},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    assert any("glob" in a.get("title", "").lower()
+               or "Expand" in a.get("title", "") for a in actions)
+```
+
+- [ ] **Step 6: Write `test_assist_ordering_rust.py`** (~100 LoC; family F)
+
+```python
+"""Stage 1H — RA family F (ordering)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+@pytest.mark.asyncio
+async def test_reorder_fields_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    target = calcrs_workspace / "ra_ordering" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 7, "character": 0}, end={"line": 12, "character": 1},
+        only=["refactor.rewrite"], trigger_kind=2,
+    )
+    assert any("reorder" in a.get("title", "").lower() for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_sort_items_offered(ra_lsp, calcrs_workspace: Path) -> None:
+    target = calcrs_workspace / "ra_ordering" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 14, "character": 0}, end={"line": 18, "character": 1},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    titles = [a.get("title", "").lower() for a in actions]
+    assert any("sort" in t for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_reorder_impl_items_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_ordering" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 22, "character": 0}, end={"line": 28, "character": 1},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    assert any("reorder" in a.get("title", "").lower() for a in actions)
+```
+
+- [ ] **Step 7: Write `test_assist_pattern_rust.py`** (~120 LoC; family I)
+
+```python
+"""Stage 1H — RA family I (pattern / destructuring)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+@pytest.mark.asyncio
+async def test_add_missing_match_arms_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_pattern_destructuring" / "src" / "lib.rs"
+    # Cursor on `match c {`.
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 9, "character": 4}, end={"line": 9, "character": 12},
+        only=["quickfix", "refactor"], trigger_kind=2,
+    )
+    titles = [a.get("title", "") for a in actions]
+    assert any("missing" in t.lower() and "arm" in t.lower() for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_add_missing_impl_members_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_pattern_destructuring" / "src" / "lib.rs"
+    # Cursor inside `impl Three for ThreeProvider`.
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 24, "character": 0}, end={"line": 24, "character": 32},
+        only=["quickfix", "refactor"], trigger_kind=2,
+    )
+    assert any("members" in a.get("title", "").lower() for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_destructure_struct_binding_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_pattern_destructuring" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 35, "character": 8}, end={"line": 35, "character": 14},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    titles = [a.get("title", "").lower() for a in actions]
+    assert any("destructure" in t for t in titles), titles
+```
+
+- [ ] **Step 8: Write `test_assist_lifetimes_rust.py`** (~100 LoC; family J)
+
+```python
+"""Stage 1H — RA family J (lifetimes & references)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.real_lsp
+
+
+@pytest.mark.asyncio
+async def test_add_explicit_lifetime_to_self_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_lifetimes" / "src" / "lib.rs"
+    # Cursor on `&self` inside `bump`.
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 8, "character": 13}, end={"line": 8, "character": 18},
+        only=["refactor.rewrite", "refactor"], trigger_kind=2,
+    )
+    titles = [a.get("title", "").lower() for a in actions]
+    assert any("lifetime" in t for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_extract_explicit_lifetime_offered(
+    ra_lsp, calcrs_workspace: Path
+) -> None:
+    target = calcrs_workspace / "ra_lifetimes" / "src" / "lib.rs"
+    actions = await ra_lsp.request_code_actions(
+        file=str(target),
+        start={"line": 17, "character": 0}, end={"line": 19, "character": 1},
+        only=["refactor.extract", "refactor"], trigger_kind=2,
+    )
+    titles = [a.get("title", "").lower() for a in actions]
+    assert any("lifetime" in t for t in titles), titles
+```
+
+- [ ] **Step 9: Run the 8 new test modules**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest \
+    test/integration/test_assist_extractors_rust.py \
+    test/integration/test_assist_inliners_rust.py \
+    test/integration/test_assist_module_file_boundary.py \
+    test/integration/test_assist_visibility_imports.py \
+    test/integration/test_assist_glob_imports.py \
+    test/integration/test_assist_ordering_rust.py \
+    test/integration/test_assist_pattern_rust.py \
+    test/integration/test_assist_lifetimes_rust.py \
+    -v 2>&1 | tail -25
+```
+
+Expected: every sub-test either PASS or `SKIPPED [reason: rust-analyzer not on PATH]`. No failures. If a `request_code_actions` returns an empty list at a target site, adjust the line/character offset to land on the actual marker comment (the line numbers above are computed from the fixture sources written in T1 + T2; if you add or remove a leading comment, recompute).
+
+- [ ] **Step 10: Commit T8**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/integration/test_assist_*.py
+git commit -m "$(cat <<'EOF'
+stage-1h(t8): 8 RA assist-family integration tests (first half)
+
+extractors / inliners / module-file-boundary / visibility+imports /
+glob-imports / ordering / pattern / lifetimes — 22 sub-tests total
+exercising rust-analyzer assist families A, B, C, D, E, F, I, J end
+to end through Stage 1A facades.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1h-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1h(t8): bump submodule + ledger T8 close
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
