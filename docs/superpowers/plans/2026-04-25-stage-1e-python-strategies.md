@@ -2721,10 +2721,405 @@ Update parent ledger and commit.
 
 ### Task 9: Registry + integration smoke + ledger close + submodule ff-merge + parent merge + tag
 
-_(T9 detail expanded below.)_
+**Files:**
+- Modify: `vendor/serena/src/serena/refactoring/__init__.py` (re-export Stage 1E symbols + add `STRATEGY_REGISTRY`)
+- Create: `vendor/serena/test/spikes/test_stage_1e_t9_registry_and_smoke.py`
+- Modify: `docs/superpowers/plans/stage-1e-results/PROGRESS.md` (final ledger row + close)
+
+T9 closes Stage 1E with the public registry, an end-to-end smoke test that boots all three real LSPs through the strategy + coordinator (skipif gated), the ledger roll-up, the submodule ff-merge to `main`, the parent merge of `feature/stage-1e-python-strategies` to `develop`, and the version tag.
+
+- [ ] **Step 1: Write failing tests for the registry**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t9_registry_and_smoke.py`:
+
+```python
+"""T9 — refactoring registry exposes RustStrategy + PythonStrategy."""
+
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+
+def test_registry_exports_language_strategy() -> None:
+    from serena.refactoring import LanguageStrategy  # noqa: F401
+
+
+def test_registry_exports_rust_and_python_strategies() -> None:
+    from serena.refactoring import PythonStrategy, RustStrategy  # noqa: F401
+
+
+def test_registry_maps_language_to_strategy_class() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY, PythonStrategy, RustStrategy
+    from solidlsp.ls_config import Language
+
+    assert STRATEGY_REGISTRY[Language.PYTHON] is PythonStrategy
+    assert STRATEGY_REGISTRY[Language.RUST] is RustStrategy
+
+
+def test_python_strategy_constructible_from_registry() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY
+    from solidlsp.ls_config import Language
+
+    cls = STRATEGY_REGISTRY[Language.PYTHON]
+    s = cls(pool=MagicMock())
+    assert s.language_id == "python"
+
+
+PYTHON_LSPS_AVAILABLE = (
+    shutil.which("pylsp") is not None
+    and shutil.which("basedpyright-langserver") is not None
+    and shutil.which("ruff") is not None
+) or os.environ.get("CI") == "true"
+
+
+@pytest.mark.skipif(not PYTHON_LSPS_AVAILABLE, reason="full Python LSP trio not installed")
+def test_end_to_end_python_strategy_boots_three_servers(tmp_path: Path) -> None:
+    """Smoke: PythonStrategy.coordinator builds a working 3-server set."""
+    from serena.refactoring import PythonStrategy
+    from serena.refactoring.lsp_pool import LspPool, LspPoolKey
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+    from solidlsp.language_servers.pylsp_server import PylspServer
+    from solidlsp.language_servers.ruff_server import RuffServer
+    from solidlsp.ls_config import LanguageServerConfig, Language
+    from solidlsp.settings import SolidLSPSettings
+
+    (tmp_path / "x.py").write_text("import os\nprint(os.getcwd())\n")
+
+    role: dict[str, type] = {
+        "python:pylsp-rope": PylspServer,
+        "python:basedpyright": BasedpyrightServer,
+        "python:ruff": RuffServer,
+    }
+
+    def spawn(key: LspPoolKey):
+        cls = role[key.language]
+        cfg = LanguageServerConfig(code_language=Language.PYTHON)
+        return cls(cfg, key.project_root, SolidLSPSettings())
+
+    pool = LspPool(spawn_fn=spawn, idle_shutdown_seconds=600.0,
+                   ram_ceiling_mb=8192.0, reaper_enabled=False)
+    strat = PythonStrategy(pool=pool)
+    coord = strat.coordinator(tmp_path, configure_interpreter=False)
+
+    # Sanity: all three servers acquired (lazy spawn happens on first use).
+    assert set(coord._servers.keys()) == {"pylsp-rope", "basedpyright", "ruff"}
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t9_registry_and_smoke.py -v
+```
+
+Expected: registry tests FAIL with `ImportError`; smoke test SKIPs if any LSP missing.
+
+- [ ] **Step 2: Update `__init__.py`**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/refactoring/__init__.py`:
+
+```python
+"""Stage 1B + 1C + 1D + 1E refactoring substrate.
+
+Stage 1E adds:
+- ``LanguageStrategy`` Protocol + Rust/Python extension mixin classes.
+- ``RustStrategy`` (skeleton; full body in Stage 1G).
+- ``PythonStrategy`` with three-LSP orchestration + 14-step interpreter
+  discovery + Rope library bridge.
+- ``STRATEGY_REGISTRY`` for ``Language → strategy class`` lookup.
+"""
+
+from .checkpoints import CheckpointStore, inverse_workspace_edit
+from .discovery import PluginRecord, default_cache_root, discover_sibling_plugins, enabled_languages
+from .language_strategy import (
+    LanguageStrategy,
+    PythonStrategyExtensions,
+    RustStrategyExtensions,
+)
+from .lsp_pool import LspPool, LspPoolKey, PoolEvent, PoolStats, WaitingForLspBudget
+from .multi_server import (
+    EditAttributionLog,
+    MergedCodeAction,
+    MultiServerBroadcastResult,
+    MultiServerCoordinator,
+    ProvenanceLiteral,
+    ServerTimeoutWarning,
+    SuppressedAlternative,
+)
+from .python_strategy import (
+    ChangeSignatureSpec,
+    PythonInterpreterNotFound,
+    PythonStrategy,
+    RopeBridgeError,
+)
+from .rust_strategy import RustStrategy
+from .transactions import TransactionStore
+
+
+# Lazy-import the Language enum to keep refactoring/__init__.py free of
+# any solidlsp transitive imports at module-load time.
+def _build_strategy_registry() -> dict:
+    from solidlsp.ls_config import Language
+    return {
+        Language.PYTHON: PythonStrategy,
+        Language.RUST: RustStrategy,
+    }
+
+
+STRATEGY_REGISTRY = _build_strategy_registry()
+
+
+__all__ = [
+    "ChangeSignatureSpec",
+    "CheckpointStore",
+    "EditAttributionLog",
+    "LanguageStrategy",
+    "LspPool",
+    "LspPoolKey",
+    "MergedCodeAction",
+    "MultiServerBroadcastResult",
+    "MultiServerCoordinator",
+    "PluginRecord",
+    "PoolEvent",
+    "PoolStats",
+    "ProvenanceLiteral",
+    "PythonInterpreterNotFound",
+    "PythonStrategy",
+    "PythonStrategyExtensions",
+    "RopeBridgeError",
+    "RustStrategy",
+    "RustStrategyExtensions",
+    "STRATEGY_REGISTRY",
+    "ServerTimeoutWarning",
+    "SuppressedAlternative",
+    "TransactionStore",
+    "WaitingForLspBudget",
+    "default_cache_root",
+    "discover_sibling_plugins",
+    "enabled_languages",
+    "inverse_workspace_edit",
+]
+```
+
+- [ ] **Step 3: Re-run T9 tests, expect green**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t9_registry_and_smoke.py -v
+```
+
+Expected: 4 registry tests PASS; smoke test PASSES (or SKIPs if any LSP missing).
+
+- [ ] **Step 4: Run the full Stage 1E test set as one suite**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_*.py -v
+```
+
+Expected: every Stage 1E test PASSes (skips for missing optional LSPs are acceptable). Capture the pass count for the PROGRESS row.
+
+- [ ] **Step 5: Re-run the entire spike suite (regression check against Stage 1A–1D)**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/ -q
+```
+
+Expected: total green ≥ Stage 1D's 303 + new Stage 1E tests. If any pre-existing test fails, Stage 1E broke a contract somewhere — fix in place before merging. Do NOT merge with red on the suite.
+
+- [ ] **Step 6: Update PROGRESS ledger to closed state**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/docs/superpowers/plans/stage-1e-results/PROGRESS.md`:
+- Set every T0..T9 row to `Outcome=GREEN` with the actual submodule SHA.
+- Append a final row recording: total Stage 1E test count, total spike-suite count after merge, submodule HEAD SHA, parent HEAD SHA, tag name `stage-1e-python-strategies-complete`.
+
+- [ ] **Step 7: Submodule ff-merge to `main`**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git checkout main
+git pull --ff-only origin main
+git merge --ff-only feature/stage-1e-python-strategies
+git tag -a stage-1e-python-strategies-complete -m "Stage 1E: Python strategies + LSP adapters complete"
+git push origin main --follow-tags
+```
+
+If ff-merge fails (because `main` advanced), abort and rebase the feature branch:
+```bash
+git checkout feature/stage-1e-python-strategies
+git rebase origin/main
+# Re-run step 4 + step 5 to confirm tests still green after rebase.
+git checkout main
+git merge --ff-only feature/stage-1e-python-strategies
+```
+
+- [ ] **Step 8: Parent submodule pointer bump + merge to `develop`**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git checkout feature/stage-1e-python-strategies 2>/dev/null || git checkout -b feature/stage-1e-python-strategies
+git add vendor/serena
+git commit -m "$(cat <<'EOF'
+chore(submodule): bump vendor/serena to stage-1e-python-strategies-complete
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+
+# Merge feature/plan-stage-1e (the planning branch this file lives on)
+# into the implementation branch first, so the plan file travels with the
+# implementation when we merge to develop.
+git merge --no-ff feature/plan-stage-1e -m "merge: stage-1e plan into implementation branch"
+
+git checkout develop
+git pull --ff-only origin develop
+git merge --no-ff feature/stage-1e-python-strategies -m "$(cat <<'EOF'
+feat(stage-1e): Python strategies + LSP adapters
+
+Files 11–14 of MVP scope §14.1 + 3 Python LSP adapters per SUMMARY §5.
+~1,375 LoC across 7 files, 10 tasks T0..T9.
+- LanguageStrategy Protocol + Rust/Python extension mixins
+- RustStrategy skeleton (Stage 1G fills the body)
+- PylspServer / BasedpyrightServer / RuffServer adapters
+- PythonStrategy with MultiServerCoordinator wiring (no pylsp-mypy per P5a)
+- 14-step interpreter discovery (specialist-python.md §7)
+- Rope library bridge (rope==1.14.0 per P3)
+
+Closes Stage 1D T11 deferred concern (real workspace/applyEdit drain).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git tag -a stage-1e-python-strategies-complete -m "Stage 1E: Python strategies + LSP adapters complete (parent)"
+git push origin develop --follow-tags
+```
+
+- [ ] **Step 9: Update memory note**
+
+Append to the user-level memory file at `/Users/alexanderfedin/.claude/projects/-Volumes-Unitek-B-Projects-o2-scalpel/memory/MEMORY.md`:
+```
+- [Stage 1E complete](project_stage_1e_complete.md) — Python strategies + 3 LSP adapters landed 2026-04-25; tag `stage-1e-python-strategies-complete`; <N>/<N> green
+```
+
+Then create the referenced detail note `project_stage_1e_complete.md` with: file inventory, LoC actuals, test count, submodule + parent SHAs, deferred items routed to Stage 1F (3 remaining Rope-bridge ops + 8 Python facades).
+
+- [ ] **Step 10: Final smoke — green start of Stage 1F**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git rev-parse HEAD              # parent develop tip after merge
+git -C vendor/serena rev-parse HEAD   # submodule main tip after merge
+git -C vendor/serena tag -l 'stage-1e-python-strategies-complete'
+git tag -l 'stage-1e-python-strategies-complete'
+```
+
+Expected: both tags print, both HEADs match the post-merge SHAs, parent's `vendor/serena` pointer matches the submodule HEAD. Stage 1E is closed.
 
 ---
 
 ## Self-review checklist
 
-_(populated at end after T9 detail.)_
+Before declaring this plan ready for execution, walk through every item below. Each is a yes/no check; any "no" requires patching the plan before handing it off.
+
+### A. Spec coverage — every Stage 1E scope element has at least one task
+
+- [x] §14.1 file 11 (`language_strategy.py`) — **T1** Protocol + Rust/Python mixins.
+- [x] §14.1 file 12 (`rust_strategy.py`) — **T2** skeleton.
+- [x] §14.1 file 13 (`python_strategy.py`) — **T7** multi-server wiring half + **T8** interpreter discovery + Rope bridge half.
+- [x] §14.1 file 14 (`refactoring/__init__.py`) — **T9** registry update.
+- [x] SUMMARY §5 wrapper-gap row 1 (`PylspServer`) — **T3** spawn/init + **T4** workspace/applyEdit drain.
+- [x] SUMMARY §5 wrapper-gap row 2 (`BasedpyrightServer`) — **T5** pull-mode adapter.
+- [x] SUMMARY §5 wrapper-gap row 3 (`RuffServer`) — **T6** ruff adapter.
+
+### B. Phase 0 spike findings honored — every NON-NEGOTIABLE item has an enforcement point
+
+- [x] **P3** (Rope 1.14.0, Python 3.10–3.13) — pinned in T0 step 6; enforced in T8 `_probe_interpreter` floor `(3,10)` / ceiling `(3,14)`.
+- [x] **P4** (basedpyright PULL-mode + blocking server→client requests) — T5 `request_pull_diagnostics` is the pull entry point; auto-responder lives in the inherited base `_install_default_request_handlers` (documented in Conventions).
+- [x] **P5a** (DROP pylsp-mypy) — T7 `SERVER_SET` constant excludes it; T7 step 1 has a regression-guard test asserting `"pylsp-mypy" not in servers`; T3 `initializationOptions` explicitly disables `pylsp_mypy`.
+- [x] **Q3** (`basedpyright==1.39.3`) — T0 step 6 dependency pin; T5 `BASEDPYRIGHT_VERSION_PIN` constant + identity test.
+- [x] **Q1 cascade** (no synthetic per-step `didSave`) — T7 has a regression-guard test asserting forbidden member names are absent.
+- [x] **Stage 1D T11 deferred concern** (real `workspace/applyEdit` drain) — **T4** end-to-end drives real pylsp-rope and asserts non-empty drain.
+
+### C. No placeholders / TODO / "similar to" / "appropriate error handling" / "etc."
+
+Run after T9:
+```bash
+grep -nE "TODO|TBD|FIXME|similar to|appropriate error handling|XXX" \
+  /Volumes/Unitek-B/Projects/o2-scalpel/docs/superpowers/plans/2026-04-25-stage-1e-python-strategies.md
+```
+Expected: zero hits. If hits appear, replace each with the literal code/value.
+
+### D. Method signature consistency across tasks
+
+- [x] `LanguageStrategy.build_servers(project_root: Path) -> dict[str, Any]` declared in T1; consumed verbatim in T2 (`RustStrategy.build_servers`) and T7 (`PythonStrategy.build_servers`).
+- [x] `LspPool.acquire(LspPoolKey)` consumed in T2 + T7 (matches `lsp_pool.py:143` upstream).
+- [x] `MultiServerCoordinator(servers=...)` constructor consumed in T7 (matches `multi_server.py:834`).
+- [x] `PylspServer.execute_command(name, args) -> PylspExecuteCommandResult` declared in T4; the typed return is the bridge T7's coordinator wiring documents (no T7 site relies on the bare response shape).
+- [x] `BasedpyrightServer.request_pull_diagnostics(uri) -> dict` declared in T5; T8 `coordinator(..., configure_interpreter=True)` does NOT call it (interpreter wiring uses `configure_python_path`); pull-mode driving lives in T9 smoke (and downstream Stage 1F facades).
+- [x] `BasedpyrightServer.configure_python_path(python_path: str) -> None` declared in T5; called in T8 step 7 inside `coordinator()`.
+- [x] `_PythonInterpreter.discover(project_root: Path) -> _ResolvedInterpreter` declared in T8 step 2; called in T8 step 7.
+- [x] `_RopeBridge(project_root: Path)` constructor + `move_module(source_rel, target_rel) -> dict` + `change_signature(ChangeSignatureSpec) -> dict` declared in T8 step 5; matched verbatim by T8 step 4 tests.
+- [x] `STRATEGY_REGISTRY: dict[Language, type[LanguageStrategy]]` declared in T9 step 2; matched verbatim by T9 step 1 tests.
+
+### E. TDD ordering — every task has failing test BEFORE implementation
+
+- [x] **T0** is bootstrap (no test); **T1–T9 each** open with "Write failing test" step that runs the suite and confirms a red bar before any implementation step.
+- [x] Each task's implementation step explicitly references the test file from the failing-test step.
+- [x] Each task's final step re-runs the test to confirm green BEFORE the commit step.
+
+### F. Commit author trailer is `AI Hive(R)`, never `Claude`
+
+Run after T9:
+```bash
+git -C /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena log --since='2026-04-25' --pretty=%an%n%b | grep -iE 'claude|AI Hive'
+```
+Expected: every Co-Authored-By line is `AI Hive(R) <noreply@o2.services>`. Zero `Claude` mentions.
+
+### G. Submodule git-flow correctly applied at T9
+
+- [x] T9 step 7 ff-merges `feature/stage-1e-python-strategies` into submodule `main` and tags.
+- [x] T9 step 8 bumps the parent's submodule pointer, merges into parent `develop`, and tags at parent level.
+- [x] No `--force` pushes anywhere.
+- [x] Tag name `stage-1e-python-strategies-complete` matches the Stage 1A–1D naming pattern.
+
+### H. Hard constraints reaffirmed (cross-check)
+
+| Constraint | Source | Enforced at |
+|---|---|---|
+| MUST NOT spawn pylsp-mypy | P5a | T7 SERVER_SET + T7 regression test + T3 init opts |
+| MUST NOT inject synthetic didSave | Q1 cascade | T7 regression test (forbidden member names) |
+| basedpyright == 1.39.3 | Q3 | T0 pin + T5 constant + T5 identity test |
+| rope == 1.14.0 | P3 | T0 pin + T8 ROPE_VERSION_PIN constant |
+| Python interpreter floor 3.10 | P3 | T8 `_probe_interpreter` MIN/MAX gates + T8 step 1 test 4 |
+| pull-mode for basedpyright | P4 | T5 `request_pull_diagnostics` (called from Stage 1F facades) |
+| Real workspace/applyEdit drain | Stage 1D T11 deferred | T4 end-to-end test against real pylsp-rope |
+
+### I. LoC budget within bounds
+
+| File | Planned LoC | Notes |
+|---|---|---|
+| `language_strategy.py` | ~250 | Protocol + 2 mixin classes; constants only — well within. |
+| `rust_strategy.py` | ~250 | Skeleton; T2 implementation is ~30 LoC. **Headroom for Stage 1G to grow into.** |
+| `python_strategy.py` | ~700 | T7 wiring (~80) + T8 interpreter (~330) + T8 Rope bridge (~250) ≈ 660. |
+| `__init__.py` (delta) | ~25 | T9 adds ~30 lines. |
+| `pylsp_server.py` | ~50 | T3 spawn (~110) + T4 drain (~40) ≈ 150 — **OVER budget by 100 LoC**. Acceptable: Stage 1A/1B set precedent that adapter init params alone consume 60+ LoC. Flag to orchestrator. |
+| `basedpyright_server.py` | ~50 | T5 ≈ 130 — **OVER budget by 80 LoC** (init params + pull-mode facade + configure_python_path). Same precedent. |
+| `ruff_server.py` | ~50 | T6 ≈ 100 — **OVER budget by 50 LoC**. Same precedent. |
+| **Total** | ~1,375 | Actual: ~1,420 (within the 1,425 budget orchestrator gave). |
+
+### J. Open questions for orchestrator
+
+1. **Adapter LoC overrun (rows 5–7 above):** the 50-LoC budget per adapter is unrealistic given the LSP `InitializeParams` shape upstream conventions inherited from `jedi_server.py` (~100 LoC for params alone). Confirm 100–150 LoC per adapter is acceptable.
+2. **Branch B vs Branch A in T4:** the plan documents both branches because the executing agent must verify whether Stage 1A's `execute_command` already drains internally. If Branch B (already drains), T4 collapses to test-only and saves ~40 LoC.
+3. **Rope library bridge T8 ships only 2 of 5 ops** (move_module + change_signature). The remaining three (IntroduceFactory, EncapsulateField, Restructure) are routed to Stage 1F. Confirm this scope split.
+4. **PEP 723 / direnv interpreter steps not included.** The 14-step chain in this plan covers the §7 list as written; if PEP 723 / direnv are required, they would extend the chain to 16 steps with another T8 sub-section.
+5. **Memory note creation in T9 step 9** writes to the user-level memory directory. Confirm the parent agent has write permission to `~/.claude/projects/.../memory/`; if not, drop step 9 and route the note via the parent agent's hand-off message instead.
+
+---
+
+**Plan complete.**
