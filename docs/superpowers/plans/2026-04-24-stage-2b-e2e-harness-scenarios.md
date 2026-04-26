@@ -1049,3 +1049,352 @@ Co-Authored-By: AI Hive(R) <noreply@o2.services>"
 Update PROGRESS T1 row to `OUTCOME=DONE`.
 
 ---
+
+### Task 2: E2E scenario E1 — happy-path 4-way Rust split + `cargo test` byte-identical
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e1_split_file_rust.py`
+
+**Scope:** Drives `ScalpelSplitFileTool` against `calcrs_e2e/src/lib.rs` to split into four sibling modules (`ast.rs`, `errors.rs`, `parser.rs`, `eval.rs`). Asserts the post-split tree compiles, `cargo test` passes byte-identically vs. baseline (same 4 tests, same names, same outcomes, same stdout module count), and the `RefactorResult.applied=true` carries a `checkpoint_id` + non-empty `diagnostics_delta`.
+
+- [ ] **Step 1: Write the failing test (TDD: scenario asserts before facade is invoked)**
+
+Write `vendor/serena/test/e2e/test_e2e_e1_split_file_rust.py`:
+
+```python
+"""E2E scenario E1 — split calcrs_e2e/src/lib.rs into 4 sibling modules.
+
+Maps to scope-report §15.1 row E1: "Split `calcrs/src/lib.rs` into
+ast/errors/parser/eval. `cargo test` byte-identical".
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+def _run_cargo_test(project_root: Path, cargo_bin: str) -> tuple[int, str]:
+    """Run `cargo test --quiet` in the given project; return (rc, normalized_stdout)."""
+    proc = subprocess.run(
+        [cargo_bin, "test", "--quiet"],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    # Normalize: strip the cargo "Compiling …" / "Finished …" / wall-clock lines
+    # so byte-equivalence is invariant under target-dir state and CPU speed.
+    keep: list[str] = []
+    for line in proc.stdout.splitlines():
+        if line.startswith(("running ", "test ", "test result:")):
+            keep.append(line)
+    return proc.returncode, "\n".join(keep)
+
+
+@pytest.mark.e2e
+def test_e1_rust_4way_split_byte_identical(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+    cargo_bin: str,
+    wall_clock_record,
+) -> None:
+    lib_rs = calcrs_e2e_root / "src" / "lib.rs"
+    assert lib_rs.exists(), "baseline lib.rs missing"
+
+    # Establish the pre-split byte-identity target.
+    pre_rc, pre_stdout = _run_cargo_test(calcrs_e2e_root, cargo_bin)
+    assert pre_rc == 0, f"baseline cargo test failed: rc={pre_rc}"
+    assert "test result: ok. 4 passed" in pre_stdout
+
+    # Drive the split: 4 target modules, each receiving the symbols
+    # currently nested inside the like-named `mod` block in lib.rs.
+    result_json = mcp_driver_rust.split_file(
+        file=str(lib_rs),
+        groups={
+            "ast": ["Expr"],
+            "errors": ["CalcError"],
+            "parser": ["parse"],
+            "eval": ["eval"],
+        },
+        parent_layout="file",
+        reexport_policy="preserve_public_api",
+        dry_run=False,
+        language="rust",
+    )
+    result = RefactorResult.model_validate_json(result_json)
+
+    # Apply contract.
+    assert result.applied is True, f"facade did not apply: {result_json}"
+    assert result.no_op is False
+    assert result.checkpoint_id is not None and result.checkpoint_id.startswith(
+        "ckpt_"
+    ), f"checkpoint_id missing or malformed: {result.checkpoint_id!r}"
+    # The diagnostics-delta MUST exist; for a clean split it should be empty.
+    assert result.diagnostics_delta is not None
+    assert result.diagnostics_delta.added == 0
+    # The four sibling modules must be on disk.
+    for mod in ("ast", "errors", "parser", "eval"):
+        sibling = calcrs_e2e_root / "src" / f"{mod}.rs"
+        assert sibling.exists(), f"post-split sibling missing: {sibling}"
+        assert sibling.stat().st_size > 0
+    # The original lib.rs must still exist (it now only carries `pub mod foo;`
+    # declarations + the public re-export block).
+    assert lib_rs.exists()
+    lib_text = lib_rs.read_text(encoding="utf-8")
+    for mod in ("ast", "errors", "parser", "eval"):
+        assert f"pub mod {mod};" in lib_text, f"missing `pub mod {mod};` in lib.rs"
+
+    # Post-split byte-identity check.
+    post_rc, post_stdout = _run_cargo_test(calcrs_e2e_root, cargo_bin)
+    assert post_rc == 0, f"post-split cargo test failed: rc={post_rc}"
+    assert post_stdout == pre_stdout, (
+        f"cargo-test stdout drifted across split:\n"
+        f"--- pre ---\n{pre_stdout}\n--- post ---\n{post_stdout}"
+    )
+
+
+@pytest.mark.e2e
+def test_e1_rust_split_dry_run_yields_preview_token(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+) -> None:
+    lib_rs = calcrs_e2e_root / "src" / "lib.rs"
+    pre_text = lib_rs.read_text(encoding="utf-8")
+
+    result_json = mcp_driver_rust.split_file(
+        file=str(lib_rs),
+        groups={"ast": ["Expr"], "errors": ["CalcError"]},
+        dry_run=True,
+        language="rust",
+    )
+    result = RefactorResult.model_validate_json(result_json)
+
+    assert result.applied is False, "dry_run=True must not apply"
+    assert result.preview_token is not None and result.preview_token.startswith(
+        "preview_"
+    ), f"dry_run did not return preview_token: {result.preview_token!r}"
+    # Confirm the on-disk file is byte-identical to the pre-state.
+    assert lib_rs.read_text(encoding="utf-8") == pre_text
+```
+
+- [ ] **Step 2: Run the test (must execute successfully end-to-end)**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_e1_split_file_rust.py -v -m e2e --tb=short
+```
+
+Expected: 2 PASSED in ~30 s–4 min (rust-analyzer cold-start dominates).
+
+If failures occur:
+- `assert result.applied is True` FAIL → inspect `result_json` printed in the failure: if `failure.code == "INDEXING"`, increase the per-test timeout or call `mcp_driver_rust.workspace_health()` first to await indexing; if `failure.code == "SYMBOL_NOT_FOUND"`, the fixture's symbol naming drifted from the `groups=` keys.
+- `assert post_stdout == pre_stdout` FAIL → diff the two strings; if cargo's "running 4 tests" / "test result" line drifted, the split changed test discovery (likely a `mod tests` boundary issue) — re-inspect `lib.rs` post-split and the per-sibling `tests/` discovery rules.
+- `cargo test failed` post-split → likely a `super::` path bug introduced by the move. The `ScalpelSplitFileTool` should rewrite `super::ast::Expr` → `crate::ast::Expr` (or insert `use crate::…` at sibling-file top); check the `RefactorResult.diff` payload to see what edits landed.
+
+- [ ] **Step 3: Verify the spike-suite still green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/ -v 2>&1 | tail -3
+```
+
+Expected: same green-count as PROGRESS T0 baseline.
+
+- [ ] **Step 4: Commit T2 (submodule + parent)**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e1_split_file_rust.py
+git commit -m "test(stage-2b): T2 — E1 happy-path 4-way Rust split + cargo test byte-identical
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T2 — bump submodule (E1 scenario)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T2 row to `OUTCOME=DONE`.
+
+---
+
+### Task 3: E2E scenario E1-py — happy-path 4-way Python split + `pytest -q` byte-identical
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e1_py_split_file_python.py`
+
+**Scope:** Drives `ScalpelSplitFileTool` against `calcpy_e2e/calcpy/calcpy.py` to split into four sibling modules under `calcpy/`: `ast.py`, `errors.py`, `parser.py`, `evaluator.py`. Asserts the post-split tree imports cleanly, `pytest -q` passes byte-identically against the baseline `tests/test_byte_identity.py`, and `__all__` is preserved on the package.
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_e2e_e1_py_split_file_python.py`:
+
+```python
+"""E2E scenario E1-py — split calcpy_e2e/calcpy/calcpy.py into 4 sibling modules.
+
+Maps to scope-report §15.1 row E1-py: "Split `calcpy/calcpy.py` into
+ast/errors/parser/evaluator. `pytest -q` byte-identical".
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+def _run_pytest_q(project_root: Path, python_bin: str) -> tuple[int, str]:
+    proc = subprocess.run(
+        [python_bin, "-m", "pytest", "-q", "tests"],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={"PYTHONPATH": str(project_root), "PATH": "/usr/bin:/bin"},
+    )
+    keep: list[str] = []
+    for line in proc.stdout.splitlines():
+        # Keep only the dotted-progress + "X passed" summary; drop the version
+        # banner and timing lines for byte-identity invariance.
+        if line.startswith((".", "F", "E")) or "passed" in line or "failed" in line:
+            keep.append(line)
+    return proc.returncode, "\n".join(keep)
+
+
+@pytest.mark.e2e
+def test_e1_py_4way_split_byte_identical(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    python_bin: str,
+    wall_clock_record,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    init = calcpy_e2e_root / "calcpy" / "__init__.py"
+    assert src.exists(), "baseline calcpy.py missing"
+    assert init.exists()
+
+    pre_rc, pre_stdout = _run_pytest_q(calcpy_e2e_root, python_bin)
+    assert pre_rc == 0, f"baseline pytest failed: rc={pre_rc}\n{pre_stdout}"
+    assert "passed" in pre_stdout
+
+    result_json = mcp_driver_python.split_file(
+        file=str(src),
+        groups={
+            "ast": ["Num", "Add", "Sub", "Mul", "Div", "Expr"],
+            "errors": ["CalcError", "ParseError", "DivisionByZero"],
+            "parser": ["parse"],
+            "evaluator": ["evaluate"],
+        },
+        parent_layout="file",
+        reexport_policy="preserve_public_api",
+        dry_run=False,
+        language="python",
+    )
+    result = RefactorResult.model_validate_json(result_json)
+
+    assert result.applied is True, f"facade did not apply: {result_json}"
+    assert result.no_op is False
+    assert result.checkpoint_id is not None and result.checkpoint_id.startswith(
+        "ckpt_"
+    )
+    assert result.diagnostics_delta is not None
+    # New sibling files exist.
+    for mod in ("ast", "errors", "parser", "evaluator"):
+        sibling = calcpy_e2e_root / "calcpy" / f"{mod}.py"
+        assert sibling.exists(), f"post-split sibling missing: {sibling}"
+        assert sibling.stat().st_size > 0
+
+    # __all__ preservation is the load-bearing check for E10-py too;
+    # E1-py asserts the package `from calcpy import *` set is unchanged.
+    init_text = init.read_text(encoding="utf-8")
+    for name in ("CalcError", "DivisionByZero", "Expr", "evaluate", "parse"):
+        assert name in init_text, f"__all__ lost {name!r} after split"
+
+    post_rc, post_stdout = _run_pytest_q(calcpy_e2e_root, python_bin)
+    assert post_rc == 0, f"post-split pytest failed: rc={post_rc}\n{post_stdout}"
+    # Byte-identity: dotted progress + summary lines unchanged.
+    assert post_stdout == pre_stdout, (
+        f"pytest -q stdout drifted across split:\n"
+        f"--- pre ---\n{pre_stdout}\n--- post ---\n{post_stdout}"
+    )
+
+
+@pytest.mark.e2e
+def test_e1_py_split_preview_token_round_trip(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    pre_bytes = src.read_bytes()
+
+    dry = mcp_driver_python.split_file(
+        file=str(src),
+        groups={"ast": ["Num"], "errors": ["CalcError"]},
+        dry_run=True,
+        language="python",
+    )
+    dry_result = RefactorResult.model_validate_json(dry)
+    assert dry_result.applied is False
+    assert dry_result.preview_token is not None
+    assert src.read_bytes() == pre_bytes, "dry_run=True modified the file"
+
+    # Re-issue with same preview_token; semantically equivalent to dry+commit.
+    commit = mcp_driver_python.split_file(
+        file=str(src),
+        groups={"ast": ["Num"], "errors": ["CalcError"]},
+        dry_run=False,
+        preview_token=dry_result.preview_token,
+        language="python",
+    )
+    commit_result = RefactorResult.model_validate_json(commit)
+    assert commit_result.applied is True
+```
+
+- [ ] **Step 2: Run the test**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest vendor/serena/test/e2e/test_e2e_e1_py_split_file_python.py -v -m e2e --tb=short
+```
+
+Expected: 2 PASSED in ~30 s–2 min (pylsp + basedpyright + ruff cold-start).
+
+If failures occur:
+- `failure.code == "MULTIPLEX_AMBIGUOUS"` → Stage 1D priority misconfigured for split-file; verify `MultiServerCoordinator.merge_rename` rule used Rope as primary.
+- `assert "DivisionByZero" in init_text` FAIL → Rope's `MoveGlobal` did not insert a re-export back into `__init__.py`; check the `_RopeBridge.move_module()` implementation in Stage 1E `python_strategy.py`.
+- `pytest -q` post-split FAIL → the moved `Union` type alias `Expr = Union[...]` may need a forward-reference fix; inspect `calcpy/ast.py` for the `Union` import.
+
+- [ ] **Step 3: Commit T3**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e1_py_split_file_python.py
+git commit -m "test(stage-2b): T3 — E1-py happy-path 4-way Python split + pytest -q byte-identical
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T3 — bump submodule (E1-py scenario)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T3 row to `OUTCOME=DONE`.
+
+---
