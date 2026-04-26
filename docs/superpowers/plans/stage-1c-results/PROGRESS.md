@@ -12,7 +12,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | T2  | LspPool skeleton (acquire/release lazy spawn; per-key Lock)            | 13e46e1e + fix 430aedfd | OK | post-T2 fix `430aedfd` removed dead `_t1c_threading` import, corrected `_start_cm` return type to `AbstractContextManager[MagicMock]`, refactored `shutdown_all` to iterate `entries.values()` (drops unused `_key`), and added `del` consumption for `_stop`/`_ping` mock side-effect args (Pyright info-level cleanup; T1+T2 stayed 14/14 green). |
 | T3  | Idle-shutdown reaper (O2_SCALPEL_LSP_IDLE_SHUTDOWN_SECONDS)            | b277d67e | OK | — |
 | T4  | pool_pre_ping (workspace/symbol echo + spawn replacement)              | 6136a4b2 | OK | — |
-| T5  | RAM-budget guard (psutil-or-fallback; WaitingForLspBudget)             | _pending_ | _pending_ | — |
+| T5  | RAM-budget guard (psutil-or-fallback; WaitingForLspBudget)             | 09be2d2f | OK | — |
 | T6  | discovery.py + O2_SCALPEL_DISABLE_LANGS filter                         | _pending_ | _pending_ | — |
 | T7  | Pool ↔ TransactionStore acquire-affinity                               | _pending_ | _pending_ | — |
 | T8  | Telemetry (.serena/pool-events.jsonl)                                  | _pending_ | _pending_ | — |
