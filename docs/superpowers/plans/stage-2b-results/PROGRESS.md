@@ -26,7 +26,9 @@
 
 ## Stage 2B exit results
 
-- E2E suite: **18 passed, 10 skipped, 0 failed** in 6.70s wall-clock.
+- E2E suite: **18 passed, 10 skipped, 0 failed** in 6.70s-8.57s wall-clock
+  (flaky — see gap #8 below: occasional E1-py drift on full-suite re-runs;
+  passes deterministically when run in isolation).
 - Regression (spikes + integration): **590 passed, 3 skipped** in 205.66s.
 - Stage 2A facade-rename adapter shim landed in 24649486 (Stage 2A backlog item #2).
 
@@ -71,6 +73,15 @@ Wall-clock budget: aggregate <= 12 min (scope-report S16.4 cap). Observed: 6.7s.
    all 4 sub-tests pass.
 
 7. **`CapabilityCatalog.hash()`** — no Stage 2B test required it; deferred.
+
+8. **E1-py byte-identity flake under full-suite ordering** — running
+   `test_e1_py_4way_split_byte_identical` standalone passes; re-running
+   the full e2e suite occasionally surfaces a stdout-drift on the post-
+   split `pytest -q` invocation. Most likely cause: ScalpelRuntime
+   singleton state from prior tests bleeding into Rope's project cache
+   on the per-test workspace clone. Mitigated by per-test
+   `reset_for_testing()` but not eliminated. v0.2.0 backlog: investigate
+   pool-key isolation + Rope project-resource caching across resets.
 
 ## Pyright diagnostic discipline
 
