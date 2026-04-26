@@ -9,7 +9,7 @@ Built on: stage-1d-multi-server-merge-complete
 |---|---|---|---|---|
 | T0 | Bootstrap branches + ledger + dep pins                             | `86854789` | DONE      | — |
 | T1 | language_strategy.py Protocol + Rust/Python mixins                 | `7cb079e1` | DONE      | Protocol uses sentinel defaults so attrs appear in inspect.getmembers (deviation from plan). |
-| T2 | rust_strategy.py skeleton (assist-family + ext allow-list)         | _pending_ | _pending_ | — |
+| T2 | rust_strategy.py skeleton (assist-family + ext allow-list)         | `bd88008c` | DONE      | — |
 | T3 | pylsp_server.py adapter (spawn/init/facade conformance)            | _pending_ | _pending_ | — |
 | T4 | pylsp_server.py real workspace/applyEdit drain (1D T11 deferred)   | _pending_ | _pending_ | — |
 | T5 | basedpyright_server.py adapter (pull-mode diagnostic, P4)          | _pending_ | _pending_ | — |
