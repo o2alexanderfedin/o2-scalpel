@@ -16,7 +16,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | T6  | discovery.py + O2_SCALPEL_DISABLE_LANGS filter                         | 3c3e9e53 | OK | — |
 | T7  | Pool ↔ TransactionStore acquire-affinity                               | ffac2c25 | OK | — |
 | T8  | Telemetry (.serena/pool-events.jsonl)                                  | e3bf68d2 | OK | — |
-| T9  | End-to-end: 4 MVP LSPs + crash-replace + idle-reap under §16 ceiling   | _pending_ | _pending_ | — |
+| T9  | End-to-end: 2 MVP LSPs + crash-replace + idle-reap under §16 ceiling   | 35c15dd4 | OK | basedpyright + ruff LSP integration deferred to Stage 1E after their adapters land (SUMMARY §5). On this host: rust-analyzer ~10 s, pylsp ~5 s, aggregate RSS <2 GB on calcrs_seed+calcpy_seed fixtures, well under 4 GB ceiling. All three sub-tests pass: spawn (2 active servers), crash-replace (pre-ping detects dead, respawns), idle-reap (compresses 2 s window, reaper reclaims). |
 | T10 | Submodule ff-merge to main + parent pointer bump + tag                 | _pending_ | _pending_ | — |
 
 ## Decisions log
