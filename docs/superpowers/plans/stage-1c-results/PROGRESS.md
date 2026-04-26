@@ -17,7 +17,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | T7  | Pool ↔ TransactionStore acquire-affinity                               | ffac2c25 | OK | — |
 | T8  | Telemetry (.serena/pool-events.jsonl)                                  | e3bf68d2 | OK | — |
 | T9  | End-to-end: 2 MVP LSPs + crash-replace + idle-reap under §16 ceiling   | 35c15dd4 | OK | basedpyright + ruff LSP integration deferred to Stage 1E after their adapters land (SUMMARY §5). On this host: rust-analyzer ~10 s, pylsp ~5 s, aggregate RSS <2 GB on calcrs_seed+calcpy_seed fixtures, well under 4 GB ceiling. All three sub-tests pass: spawn (2 active servers), crash-replace (pre-ping detects dead, respawns), idle-reap (compresses 2 s window, reaper reclaims). |
-| T10 | Submodule ff-merge to main + parent pointer bump + tag                 | _pending_ | _pending_ | — |
+| T10 | Submodule ff-merge to main + parent pointer bump + tag                 | submodule main `5d4e4af6` / parent develop `4cc4c0a` | OK | Submodule ff-merged to `main` and pushed (ba7e62b1..5d4e4af6); parent develop merged via git-flow (`4cc4c0a`); tag `stage-1c-lsp-pool-discovery-complete` pushed; spike-suite 185/185 green. Step 4 (`git add vendor/serena`) was a no-op because the parent submodule pointer was already advanced to `5d4e4af6` by post-T9 commit `26cbfea`. |
 
 ## Decisions log
 
@@ -25,8 +25,8 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 
 ## Stage 1B entry baseline
 
-- Submodule `main` head at Stage 1C start: <fill in via `git -C vendor/serena rev-parse main` at T0 close>
-- Parent `develop` head at Stage 1C start: <fill in via `git rev-parse develop`>
+- Submodule `main` head at Stage 1C start: `ba7e62b1` (Stage 1B T10/T13 inverse-synthesis fix; submodule had no Stage 1B tag locally — derived from feature-branch parent commit)
+- Parent `develop` head at Stage 1C start: `3484bec` (`Merge branch 'feature/stage-1b-applier-checkpoints-transactions' into develop`)
 - Stage 1B tag: `stage-1b-applier-checkpoints-transactions-complete`
 - Stage 1A + 1B spike-suite green: 130/130 (per Stage 1B PROGRESS.md final verdict)
 
@@ -36,3 +36,20 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 - Stage 1A T10 → `override_initialize_params()` is the chokepoint Stage 1C uses to inject per-pool isolated cache paths (§16.5) at spawn.
 - Stage 1B T11/T12 → `CheckpointStore.LRU(50)` + `TransactionStore.LRU(20)` are the substrate Stage 1C T7 binds to.
 - §16.1/§16.2/§16.4/§16.5 → drive the four pool knobs (RAM ceiling, disable-langs, idle shutdown, cache isolation) wired in T3/T5/T6.
+
+## Stage 1C — final verdict
+
+- All 11 tasks (T0–T10) complete.
+- Submodule `vendor/serena` main: `5d4e4af6`.
+- Parent `develop` head: `4cc4c0a`.
+- Tag: `stage-1c-lsp-pool-discovery-complete`.
+- Spike-suite green: ~185+ (Phase 0 + Stage 1A + Stage 1B + Stage 1C).
+- LoC delta vs Stage 1B: ~+290 logic (lsp_pool.py +180, discovery.py +110),
+  ~+620 test, +2 production files (refactoring/lsp_pool.py,
+  refactoring/discovery.py), +9 new test files, +24 LoC conftest fixture
+  delta, +6 LoC __init__.py re-exports.
+
+**Stage 1D entry approval**: PROCEED. The multi-server merge consumes
+LspPool.acquire_for_transaction (T7) for transactional fan-out across the
+three Python LSPs; Stage 1E's LanguageStrategy activation map consumes
+discover_sibling_plugins (T6) + enabled_languages.
