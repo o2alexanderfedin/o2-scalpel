@@ -10,7 +10,8 @@ Generator dependency: Stage 1J `o2-scalpel-newplugin` CLI @ `eddba6c579aab28bac3
 | T1 | Run generator → o2-scalpel-rust/ | c094223 (no diff) | OK — re-emitted via `--force`; byte-identical to golden + already-tracked Stage 1J commit | Stage 1J already committed identical bytes; no new commit needed. |
 | T2 | Run generator → o2-scalpel-python/ | c094223 (no diff) | OK — re-emitted via `--force`; matches committed Stage 1J Python tree | Golden snapshot at `vendor/serena/test/spikes/golden/o2-scalpel-python/` is stale (split_file description / facade list); Stage 1J fixture refresh follow-up. |
 | T3 | Header banner injection (6 files) | 6956d6f | OK — 4 JSON `_generator` keys + 2 Markdown comment headers; idempotent | — |
-| T4 | Top-level marketplace.json | _pending_ | _pending_ | — |
-| T5 | README regen + Makefile target | _pending_ | _pending_ | — |
-| T6 | uvx smoke driver + pytest wrapper | _pending_ | _pending_ | — |
-| T7 | Hook chmod +x check + ledger close + tag | _pending_ | _pending_ | — |
+| T4 | Top-level marketplace.json | 5efc215 | OK — replaced minimal Stage 1J marketplace with richer boostvolt-shape (banner, metadata, tags, author) | — |
+| T5 | README regen + Makefile target | 9d7ba01 | OK — both READMEs annotated with `## Regeneration`; Makefile extended with `_restamp-banners` + `verify-plugins-fresh` | Banner SHA only re-stamped on next `make generate-plugins`. |
+| T6 | uvx smoke driver + pytest wrapper | 7890e08 | OK — script + pytest landed; 2 SKIPPED (`serena-mcp` not exposed) | T6 unblocks once `serena-mcp = serena.cli:mcp_entry` is added to vendor/serena/pyproject.toml. |
+| T7 | Hook chmod +x check + ledger close + tag | 7cf805d | OK — both verify-scalpel hooks executable; full regression 503 passed / 3 skipped; Makefile $(OUT) bug found+fixed during T7 | Spike-results P5a/S1/S4 drift restored to HEAD pre-merge. |
+| 1I | **Stage 1I complete** | 7cf805d | OK — generator-driven plugin trees + marketplace.json + Makefile + uvx smoke landed; **Stage 1 exit gate green** | — |
