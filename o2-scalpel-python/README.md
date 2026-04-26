@@ -31,3 +31,24 @@ This plugin ships skills under `skills/` so Claude knows when to call each facad
 ## License
 
 MIT - AI Hive(R)
+
+## Regeneration
+
+This tree is generated. Do not hand-edit. To regenerate after a
+`LanguageStrategy` or facade change in `vendor/serena/`:
+
+```bash
+make generate-plugins
+```
+
+Equivalent direct invocation:
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="vendor/serena/.venv/bin:$PATH" o2-scalpel-newplugin \
+    --language python --out . --force
+```
+
+The generator commit SHA is recorded in the `_generator` key
+of `.claude-plugin/plugin.json` and `.mcp.json` and in the HTML
+comment at the top of this file.
