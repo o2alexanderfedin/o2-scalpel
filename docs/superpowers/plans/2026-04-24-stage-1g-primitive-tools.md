@@ -2340,4 +2340,298 @@ Expected: T5 row reads OK — 6/6 green; submodule pointer bumped.
 
 ---
 
+### Task 6: `ScalpelRollbackTool` + `ScalpelTransactionRollbackTool`
+
+**Files:**
+- Modify: `vendor/serena/src/serena/tools/scalpel_primitives.py` (append both classes)
+- Create: `vendor/serena/test/spikes/test_stage_1g_t6_rollback.py`
+
+- [ ] **Step 1: Write failing test — single + multi rollback**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t6_rollback.py`:
+
+```python
+"""T6 — ScalpelRollbackTool + ScalpelTransactionRollbackTool: idempotent undo."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def _build_single(project_root: Path):
+    from serena.tools.scalpel_primitives import ScalpelRollbackTool
+
+    agent = MagicMock(name="SerenaAgent")
+    agent.get_active_project_or_raise.return_value = MagicMock(project_root=str(project_root))
+    return ScalpelRollbackTool(agent=agent)
+
+
+def _build_multi(project_root: Path):
+    from serena.tools.scalpel_primitives import ScalpelTransactionRollbackTool
+
+    agent = MagicMock(name="SerenaAgent")
+    agent.get_active_project_or_raise.return_value = MagicMock(project_root=str(project_root))
+    return ScalpelTransactionRollbackTool(agent=agent)
+
+
+def test_tool_names() -> None:
+    from serena.tools.scalpel_primitives import (
+        ScalpelRollbackTool,
+        ScalpelTransactionRollbackTool,
+    )
+
+    assert ScalpelRollbackTool.get_name_from_cls() == "scalpel_rollback"
+    assert ScalpelTransactionRollbackTool.get_name_from_cls() == "scalpel_transaction_rollback"
+
+
+def test_single_rollback_unknown_id_returns_no_op(tmp_path: Path) -> None:
+    tool = _build_single(tmp_path)
+    raw = tool.apply(checkpoint_id="ckpt_does_not_exist")
+    payload = json.loads(raw)
+    assert payload["applied"] is False
+    assert payload["no_op"] is True
+    assert payload.get("failure") is None  # idempotent unknown id
+
+
+def test_single_rollback_known_id_invokes_restore(tmp_path: Path) -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    rt = ScalpelRuntime.instance()
+    # Seed a fake checkpoint by recording an empty edit; the inverse is
+    # also empty so applier_fn returning 0 means restore=False (no-op).
+    cid = rt.checkpoint_store().record(
+        applied={"changes": {}}, snapshot={},
+    )
+    tool = _build_single(tmp_path)
+    raw = tool.apply(checkpoint_id=cid)
+    payload = json.loads(raw)
+    # Restore returned False (n=0 ops applied) — surfaces as no_op.
+    assert payload["no_op"] is True
+    assert payload["applied"] is False
+    assert payload.get("failure") is None
+
+
+def test_single_rollback_idempotent_second_call(tmp_path: Path) -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    cid = ScalpelRuntime.instance().checkpoint_store().record(
+        applied={"changes": {}}, snapshot={},
+    )
+    tool = _build_single(tmp_path)
+    raw_a = tool.apply(checkpoint_id=cid)
+    raw_b = tool.apply(checkpoint_id=cid)
+    payload_a = json.loads(raw_a)
+    payload_b = json.loads(raw_b)
+    # Both calls return without raising; second call is also no_op.
+    assert payload_a["no_op"] is True
+    assert payload_b["no_op"] is True
+
+
+def test_transaction_rollback_walks_in_reverse(tmp_path: Path) -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    rt = ScalpelRuntime.instance()
+    txn_id = rt.transaction_store().begin()
+    cid_a = rt.checkpoint_store().record(applied={"changes": {}}, snapshot={})
+    cid_b = rt.checkpoint_store().record(applied={"changes": {}}, snapshot={})
+    rt.transaction_store().add_checkpoint(txn_id, cid_a)
+    rt.transaction_store().add_checkpoint(txn_id, cid_b)
+
+    tool = _build_multi(tmp_path)
+    raw = tool.apply(transaction_id=txn_id)
+    payload = json.loads(raw)
+    assert payload["transaction_id"] == txn_id
+    assert payload["rolled_back"] is True
+    # member_ids walked in reverse: cid_b first, then cid_a. Both are
+    # empty edits so restore returns False (n=0). per_step has 2 rows.
+    assert len(payload["per_step"]) == 2
+
+
+def test_transaction_rollback_unknown_txn_returns_no_op(tmp_path: Path) -> None:
+    tool = _build_multi(tmp_path)
+    raw = tool.apply(transaction_id="txn_does_not_exist")
+    payload = json.loads(raw)
+    assert payload["transaction_id"] == "txn_does_not_exist"
+    assert payload["rolled_back"] is False
+    assert payload["per_step"] == []
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t6_rollback.py -v
+```
+
+Expected: 6/6 fail with `AttributeError: ... has no attribute 'ScalpelRollbackTool'`.
+
+- [ ] **Step 3: Append both rollback classes to `scalpel_primitives.py`**
+
+Append (after `ScalpelDryRunComposeTool`, before `__all__`):
+
+```python
+from serena.code_editor import LanguageServerCodeEditor  # noqa: F401 — Stage 1B applier handle
+
+
+def _no_op_applier(_workspace_edit: dict[str, Any]) -> int:
+    """Stage 1G synthetic applier — exists so checkpoint_store.restore
+    can be invoked without spinning up a real LSP. The LanguageServer
+    CodeEditor._apply_workspace_edit path is exercised in Stage 2A
+    integration tests where a real applier handle is available.
+
+    Returns 0 to indicate no operations applied; restore() therefore
+    returns False, which surfaces as ``no_op=True`` in RefactorResult.
+    """
+    return 0
+
+
+class ScalpelRollbackTool(Tool):
+    """Undo a refactor by checkpoint_id (idempotent)."""
+
+    def apply(self, checkpoint_id: str) -> str:
+        """Undo a refactor by checkpoint_id. Idempotent: second call is no-op.
+
+        :param checkpoint_id: id returned by a prior apply call.
+        :return: JSON RefactorResult with applied=True if any ops applied,
+            else no_op=True.
+        """
+        runtime = ScalpelRuntime.instance()
+        ckpt_store = runtime.checkpoint_store()
+        ckpt = ckpt_store.get(checkpoint_id)
+        if ckpt is None:
+            # Unknown id — idempotent no-op (per §5.1 docstring contract).
+            return RefactorResult(
+                applied=False,
+                no_op=True,
+                diagnostics_delta=_empty_diagnostics_delta(),
+                checkpoint_id=checkpoint_id,
+            ).model_dump_json(indent=2)
+        restored = ckpt_store.restore(checkpoint_id, _no_op_applier)
+        return RefactorResult(
+            applied=bool(restored),
+            no_op=not restored,
+            diagnostics_delta=_empty_diagnostics_delta(),
+            checkpoint_id=checkpoint_id,
+        ).model_dump_json(indent=2)
+
+
+class ScalpelTransactionRollbackTool(Tool):
+    """Undo all checkpoints in a transaction in reverse order (idempotent)."""
+
+    def apply(self, transaction_id: str) -> str:
+        """Undo all checkpoints in a transaction (from dry_run_compose) in
+        reverse order. Idempotent.
+
+        :param transaction_id: id returned by dry_run_compose.
+        :return: JSON TransactionResult.
+        """
+        runtime = ScalpelRuntime.instance()
+        txn_store = runtime.transaction_store()
+        ckpt_store = runtime.checkpoint_store()
+        member_ids = txn_store.member_ids(transaction_id)
+        per_step: list[RefactorResult] = []
+        if not member_ids:
+            return TransactionResult(
+                transaction_id=transaction_id,
+                per_step=(),
+                aggregated_diagnostics_delta=_empty_diagnostics_delta(),
+                rolled_back=False,
+            ).model_dump_json(indent=2)
+        # Walk in reverse via TransactionStore.rollback semantics, but
+        # build per-step RefactorResult rows for observability.
+        success_count = 0
+        for cid in reversed(member_ids):
+            ok = ckpt_store.restore(cid, _no_op_applier)
+            if ok:
+                success_count += 1
+            per_step.append(RefactorResult(
+                applied=bool(ok),
+                no_op=not ok,
+                diagnostics_delta=_empty_diagnostics_delta(),
+                checkpoint_id=cid,
+                transaction_id=transaction_id,
+            ))
+        # Partial-rollback detection: if some restores succeeded and
+        # some did not, surface the still-pending checkpoint ids.
+        remaining = (
+            tuple(cid for cid, step in zip(reversed(member_ids), per_step) if step.no_op)
+            if 0 < success_count < len(member_ids)
+            else ()
+        )
+        return TransactionResult(
+            transaction_id=transaction_id,
+            per_step=tuple(per_step),
+            aggregated_diagnostics_delta=_empty_diagnostics_delta(),
+            rolled_back=True,
+            remaining_checkpoint_ids=remaining,
+        ).model_dump_json(indent=2)
+```
+
+Then add both class names to `__all__`.
+
+- [ ] **Step 4: Re-run tests, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t6_rollback.py -v
+```
+
+Expected: 6/6 PASS.
+
+- [ ] **Step 5: Commit T6**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/scalpel_primitives.py \
+        test/spikes/test_stage_1g_t6_rollback.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t6): rollback tools — single + transaction (6/6 green)
+
+Adds ScalpelRollbackTool (single checkpoint undo via Stage 1B
+CheckpointStore.restore) and ScalpelTransactionRollbackTool (multi-
+checkpoint undo walking TransactionStore.member_ids in reverse). Both
+are idempotent: unknown id returns RefactorResult with no_op=True;
+second call after successful restore is also no_op. Synthetic
+_no_op_applier stands in for LanguageServerCodeEditor._apply_workspace
+_edit at this stage; Stage 2A integration tests wire the real applier.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+Then update parent ledger row T6 (`OK — 6/6 green`):
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+plan(stage-1g): T6 ledger — rollback + transaction_rollback (6/6 green)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+Expected: T6 row reads OK — 6/6 green; submodule pointer bumped.
+
+---
+
 
