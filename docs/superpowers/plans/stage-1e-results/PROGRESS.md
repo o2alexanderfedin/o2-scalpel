@@ -12,7 +12,7 @@ Built on: stage-1d-multi-server-merge-complete
 | T2 | rust_strategy.py skeleton (assist-family + ext allow-list)         | `bd88008c` | DONE      | — |
 | T3 | pylsp_server.py adapter (spawn/init/facade conformance)            | `ea2aa92d` | DONE      | Adapter overrides `get_language_enum_instance` returning `Language.PYTHON` rather than mutating the legacy `get_ls_class` registry (slot owned by PyrightServer). |
 | T4 | pylsp_server.py real workspace/applyEdit drain (1D T11 deferred)   | `0bbe72cb` | DONE      | Branch B — base `execute_command` already returns `(response, drained)`; only the regression test landed. pylsp 1.14.0 lacks `codeAction/resolve`; pylsp-rope ships command-typed actions directly so the resolve call is bypassed. |
-| T5 | basedpyright_server.py adapter (pull-mode diagnostic, P4)          | _pending_ | _pending_ | — |
+| T5 | basedpyright_server.py adapter (pull-mode diagnostic, P4)          | `f1316152` | DONE      | Same T3 deviations re-applied: override `get_language_enum_instance`, implement `_start_server`, use `open_file()` ctx mgr in boot test. Boot+pull GREEN — basedpyright returned items[] with source="basedpyright". |
 | T6 | ruff_server.py adapter                                             | _pending_ | _pending_ | — |
 | T7 | python_strategy.py — MultiServerCoordinator wiring (no mypy)       | _pending_ | _pending_ | — |
 | T8 | python_strategy.py — 14-step interpreter + Rope library bridge     | _pending_ | _pending_ | — |
