@@ -5,22 +5,24 @@ Branch: feature/stage-1h-fixtures-integration-tests (both parent + submodule)
 Author: AI Hive(R)
 Built on: stage-1g-primitive-tools-complete
 Predecessor green: 303 + Stage 1E + 1F + 1G suite (per stage-1g-results/PROGRESS.md)
+**Status: REDUCED-SCOPE v0.1.0 COMPLETE — full plan deferred to v0.2.0 "Stage 1H continuation"**
 
 | Task | Description | Branch SHA (submodule) | Outcome | Follow-up |
 |---|---|---|---|---|
-| T0  | Bootstrap branches + ledger + fixture-tree skeleton dirs                | 9623c61c | OK — branches open, skeleton dirs + sentinels committed | — |
-| T1  | calcrs Cargo workspace shell + 5 baseline crates                        | _pending_ | _pending_ | — |
-| T2  | 13 additional RA companion crates                                       | _pending_ | _pending_ | — |
-| T3  | calcpy package shell + sub-fixture 1 (calcpy_namespace, split_file)     | _pending_ | _pending_ | — |
-| T4  | calcpy sub-fixture 2 (calcpy_circular, extract_function)                | _pending_ | _pending_ | — |
-| T5  | calcpy sub-fixture 3 (calcpy_dataclasses, inline)                       | _pending_ | _pending_ | — |
-| T6  | calcpy sub-fixture 4 (calcpy_notebooks, organize_imports)               | _pending_ | _pending_ | — |
-| T7  | integration test harness (test/integration/conftest.py)                 | _pending_ | _pending_ | — |
-| T8  | 8 Rust assist-family integration tests (extract/inline/move/rewrite)    | _pending_ | _pending_ | — |
-| T9  | 8 more Rust integration tests (generators/convert/pattern/visibility/…) | _pending_ | _pending_ | — |
-| T10 | 8 Python integration tests (rope-bridge facades + pylsp + basedpyright) | _pending_ | _pending_ | — |
-| T11 | 7 cross-language tests (multi-server merge invariants from §11.7)       | _pending_ | _pending_ | — |
-| T12 | registry update + ledger close + ff-merge + tag                         | _pending_ | _pending_ | — |
+| T0          | Bootstrap branches + ledger + fixture-tree skeleton dirs                | 9623c61c | OK | — |
+| T1-min      | calcrs Cargo workspace shell + calcrs-core companion (NOT 5+18)         | 3c628177 | OK — `cargo check` clean (under `CARGO_BUILD_RUSTC=rustc` workaround) | 17 RA companion crates → v0.2.0 |
+| T2          | 13 additional RA companion crates                                       | _deferred_ | DEFERRED → v0.2.0 | route under "Stage 1H continuation" |
+| T3-min      | calcpy package shell + calcpy/core.py (NOT monolith + 4 sub-fixtures)   | bf471377 | OK — `import calcpy; calcpy.evaluate(calcpy.parse('42'))` round-trips | 3 calcpy sub-fixtures → v0.2.0 |
+| T4          | calcpy sub-fixture 2 (calcpy_circular)                                  | _deferred_ | DEFERRED → v0.2.0 | — |
+| T5          | calcpy sub-fixture 3 (calcpy_dataclasses)                               | _deferred_ | DEFERRED → v0.2.0 | — |
+| T6          | calcpy sub-fixture 4 (calcpy_notebooks)                                 | _deferred_ | DEFERRED → v0.2.0 | — |
+| T7          | integration test harness (test/integration/conftest.py)                 | 5279700d | OK — boots ra+pylsp+basedpyright+ruff session-scoped | — |
+| T-smoke     | 3 smoke integration tests (rust codeaction / python codeaction / health) | 5279700d | OK — 4/4 sub-tests green | replaces T8/T10 minimum |
+| T8          | 8 Rust assist-family integration tests (extract/inline/move/rewrite)    | _deferred_ | DEFERRED → v0.2.0 | — |
+| T9          | 8 more Rust integration tests (generators/convert/pattern/visibility/…) | _deferred_ | DEFERRED → v0.2.0 | — |
+| T10         | 8 Python integration tests (rope-bridge facades + pylsp + basedpyright) | _deferred_ | DEFERRED → v0.2.0 | — |
+| T11         | 7 cross-language tests (multi-server merge invariants from §11.7)       | _deferred_ | DEFERRED → v0.2.0 | — |
+| T-close     | Ledger close + ff-merge to main + tag                                   | _pending_ | _pending_ | — |
 
 ## Decisions log
 
@@ -28,6 +30,11 @@ Predecessor green: 303 + Stage 1E + 1F + 1G suite (per stage-1g-results/PROGRESS
 
 - 2026-04-25 — Plan deviation noted: capability catalog module is `src/serena/refactoring/capabilities.py` (not `capability_catalog.py` as the plan references). Surface check at T0 step 5 adapted accordingly.
 - 2026-04-25 — Stage 1H execution PAUSED after T0 bootstrap. Honest scope assessment by orchestrator: 9,460 LoC of fixtures + 31 integration tests requiring real-LSP boots cannot fit the imposed 8-hour budget without producing half-broken submodule state. T0 committed as a safe bootstrap checkpoint; T1..T12 deferred pending budget revision or scope reduction (e.g., minimum-viable subset: T1+T3+T7 + 3 representative integration tests proving the harness boots all four LSPs).
+- 2026-04-25 — Orchestrator scope-reduced Stage 1H to v0.1.0 minimum: T1-min (calcrs workspace + 1 companion), T3-min (calcpy + core.py), T7 at full quality, T-smoke (3 tests). Routes 28 tests + 17 RA companions + 3 calcpy sub-fixtures to v0.2.0 "Stage 1H continuation" milestone. Justification: covers Stage 2A (5 facade integration tests) + Stage 2B (9 MVP E2E scenarios) actual cut criteria; full plan was honest 16–24 h scope.
+- 2026-04-25 — `Cargo.lock` gitignored at fixture root (matches existing `test/spikes/seed_fixtures/calcrs_seed/` pattern). Lockfile is recomputed by each cargo invocation.
+- 2026-04-25 — `CARGO_BUILD_RUSTC=rustc` workaround applied in conftest module-load to defeat the developer machine's global `~/.cargo/config.toml` `rust-fv-driver` wrapper (broken dyld lookup). Same workaround already in `test/spikes/test_spike_s3_apply_edit_reverse.py:24`.
+- 2026-04-25 — `WorkspaceHealth` smoke asserts pylsp-rope + ruff + rust-analyzer (3 catalog-visible servers), NOT 4 LSPs as the brief named. basedpyright registers capabilities dynamically post-init; the static Stage 1F catalog enumerates only servers with at-strategy-build advertised capabilities. The basedpyright LSP boot itself IS exercised by the `basedpyright_lsp` session fixture in `conftest.py` — the harness wires all 4.
+- 2026-04-25 — Whole-file probe in Rust smoke uses computed file-end coordinates instead of `{line:10000, char:0}`; rust-analyzer rejects out-of-range positions while ruff clamps. The `whole_file_range` fixture remains for ruff/python paths.
 
 ## Stage 1H entry baseline
 
@@ -36,17 +43,55 @@ Predecessor green: 303 + Stage 1E + 1F + 1G suite (per stage-1g-results/PROGRESS
 - Stage 1G tag: `stage-1g-primitive-tools-complete`
 - Predecessor suite green: per stage-1g-results/PROGRESS.md
 
-## Fixture LoC running tally (updated per task)
+## Stage 1H exit state (v0.1.0)
+
+- Submodule final SHA: `5279700d`
+- Submodule tag: `stage-1h-fixtures-integration-tests-complete` (applied at T-close)
+- Parent merge into develop: at T-close
+- Parent tag: `stage-1h-v0.1.0-complete` (applied at T-close)
+- Test count: **503 passed, 1 skipped** across `test/spikes/` + `test/integration/` (Stage 1H added 4 new tests; full suite was 499 + 1 skipped pre-Stage-1H).
+- Pyright on `test/integration/`: **0 errors**, 41 warnings (pre-existing project bar — see Stage 1A–1G ledgers for the same warning shape).
+
+## Fixture LoC running tally (final, v0.1.0)
 
 | Task | Cumulative fixture LoC | Cumulative test LoC | Total Stage 1H LoC |
 |---|---|---|---|
-| T0  | 0    | 1   (pkg `__init__.py`) | 1     |
+| T0      | 0                  | 1   (pkg `__init__.py`)        | 1                                 |
+| T1-min  | +201 (Rust + manifests)  | +1                              | 202                               |
+| T3-min  | +155 (Python + manifest)  | +1                              | 358                               |
+| T7      | +155                       | +210 (conftest)                 | 568 (conftest counted as test surface) |
+| T-smoke | +155                       | +210 + ~240 (3 smoke modules)   | ~810                              |
+
+LoC delta vs full-plan target (~9,460):
+- Production: 0 LoC (Stage 1H is pure test/fixture surface — same as full plan).
+- Fixtures: ~360 LoC delivered vs ~5,240 LoC planned (~7%).
+- Tests + harness: ~450 LoC delivered vs ~4,180 LoC planned (~11%).
+- Total: ~810 LoC delivered vs ~9,460 LoC planned (~9%).
+
+The remaining ~91% routes to v0.2.0 "Stage 1H continuation".
+
+## Items routed to v0.2.0 "Stage 1H continuation"
+
+- 17 RA companion crates: `ra_extractors`, `ra_inliners`, `ra_visibility`, `ra_imports`, `ra_glob_imports`, `ra_ordering`, `ra_generators_traits`, `ra_generators_methods`, `ra_convert_typeshape`, `ra_convert_returntype`, `ra_pattern_destructuring`, `ra_lifetimes`, `ra_proc_macros`, `ra_ssr`, `ra_macros`, `ra_module_layouts`, `ra_quickfixes`, `ra_workspace_edit_shapes`, `ra_term_search` (~3,200 LoC).
+- 3 calcpy sub-fixtures: `calcpy_namespace` (PEP 420), `calcpy_circular` (lazy-import trap), `calcpy_dataclasses` (5 dataclass restructure), `calcpy_notebooks` (.ipynb companion) (~590 LoC).
+- 28 deferred per-assist-family integration test modules:
+  - **Rust (15)**: T1 module/file boundary, T2 extractors_rust, T3 inliners_rust, T4 visibility_imports, T5 glob_imports, T6 ordering_rust, T7 generators_traits, T8 generators_methods, T9 convert_typeshape, T10 convert_returntype, T11 pattern_rust, T12 lifetimes_rust, T13 term_search_rust, T14 quickfix_rust, T15 macros_rust, T16 ssr_rust.
+  - **Python (8)**: T17 extract_method_py, T18 extract_variable_py, T19 inline_py, T20 organize_import_py, T21 basedpyright_autoimport, T22 ruff_fix_all, T23 move_global_py, T24 rename_module_py.
+  - **Cross-language (7)**: T25 multi_server_organize_imports, T26 multi_server_workspace_boundary, T27 multi_server_apply_cleanly, T28 multi_server_syntactic_validity, T29 multi_server_disabled_reason, T30 multi_server_namespace_pkg, T31 multi_server_circular_import.
+- Headline calcpy monolith (~950 LoC `calcpy.py` + `calcpy.pyi` stub + 4 baseline test modules + `expected/baseline.txt`).
+
+## Concerns / follow-ups
+
+- **basedpyright dynamic-capability gap**: The workspace_health tool surfaces only servers visible in the static catalog. v0.2.0 should either (a) augment the catalog post-init from each booted server's `client/registerCapability` events, or (b) accept that diagnostic-only servers are intentionally hidden from `capabilities_count` and document so explicitly in the schema.
+- **rust-analyzer position validation**: Whole-file probes need pre-computed file-end coordinates (rust-analyzer rejects out-of-range). The `whole_file_range` conftest fixture is currently ruff/python-only; v0.2.0 should ship a `compute_file_range(path) -> (start, end)` helper to remove duplication across the 16 deferred Rust tests.
+- **Multi-server async wrapping**: `MultiServerCoordinator.broadcast` calls `await facade(**kwargs)` but the Stage 1A `SolidLanguageServer.request_code_actions` facade is **sync** on real adapters. The Stage 1D unit tests work only because `_FakeServer` declares async methods. Calling `coordinator.merge_code_actions(...)` against real Stage 1E adapters will raise `TypeError: object list can't be used in 'await' expression`. v0.2.0 must either wrap each sync call in `asyncio.to_thread(...)` inside `broadcast._one`, or land async variants on the adapters. The smoke tests sidestep this by calling `request_code_actions` directly per-server rather than via the coordinator.
+- **`CARGO_BUILD_RUSTC=rustc` workaround** is environmental (developer's global `~/.cargo/config.toml`). CI should not need it; document in Stage 1H continuation prep.
 
 ## Spike outcome quick-reference (carryover for context)
 
-- P3 → ALL-PASS — Rope 1.14.0 + Python 3.10–3.13+ supported. Library bridge integration tested in T23 / T24.
-- P4 → A — basedpyright 1.39.3 PULL-mode only; T21 exercises pull-mode auto-import.
-- P5a → C — pylsp-mypy DROPPED. T20 / T25 verify the 3-server merge does not include mypy.
+- P3 → ALL-PASS — Rope 1.14.0 + Python 3.10–3.13+ supported. Library bridge integration tested in T23 / T24 (deferred to v0.2.0).
+- P4 → A — basedpyright 1.39.3 PULL-mode only; T21 (deferred) exercises pull-mode auto-import.
+- P5a → C — pylsp-mypy DROPPED. T20 / T25 (deferred) verify the 3-server merge does not include mypy.
 - Q1 cascade — synthetic per-step `didSave` injection no longer needed (was a pylsp-mypy mitigation).
-- Q3 — `basedpyright==1.39.3` exact pin verified by T21 startup assertion.
-- S5 → see S5 note — `expandMacro` proc-macro pathway tested via `ra_proc_macros` + T15.
+- Q3 — `basedpyright==1.39.3` exact pin verified by adapter boot in T7 conftest fixture.
+- S5 → see S5 note — `expandMacro` proc-macro pathway will be tested via `ra_proc_macros` + T15 (deferred to v0.2.0).
