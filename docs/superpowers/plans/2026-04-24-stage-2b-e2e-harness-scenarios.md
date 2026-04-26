@@ -215,3 +215,837 @@ A new ledger `docs/superpowers/plans/stage-2b-results/PROGRESS.md` is created in
 Updated as a separate parent commit after each task completes.
 
 ---
+
+### Task 0: Bootstrap branches + PROGRESS ledger + `e2e` marker register
+
+**Files:**
+- Create: `docs/superpowers/plans/stage-2b-results/PROGRESS.md`
+- Modify: `vendor/serena/pyproject.toml` (`[tool.pytest.ini_options]` markers list, append `e2e`).
+- Verify: parent + submodule both on `feature/stage-2b-e2e-harness-scenarios`.
+
+- [ ] **Step 1: Open submodule feature branch off `main`**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git fetch origin
+git checkout -B feature/stage-2b-e2e-harness-scenarios origin/main
+git rev-parse HEAD
+```
+
+Expected: HEAD points at the Stage 2A ff-merge tip on `origin/main` (the SHA tagged `stage-2a-ergonomic-facades-complete`). Capture this SHA as the Stage 2B entry SHA in PROGRESS step 7. If `origin/main` is not the latest Stage 2A tip, abort and reconcile manually — Stage 2B must be built on the ergonomic facades + real spawn factory.
+
+- [ ] **Step 2: Open parent feature branch off `develop`**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git fetch origin
+git checkout -B feature/stage-2b-e2e-harness-scenarios origin/develop
+git rev-parse HEAD
+```
+
+Expected: HEAD points at `origin/develop` tip with the Stage 2A merge already present.
+
+- [ ] **Step 3: Confirm Stage 2A facade tools are importable**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/python -c "from serena.tools.scalpel_facades import (
+    ScalpelSplitFileTool, ScalpelExtractTool, ScalpelInlineTool,
+    ScalpelRenameTool, ScalpelImportsOrganizeTool, ScalpelTransactionCommitTool,
+)
+print('OK')"
+```
+
+Expected: `OK`. If `ImportError`, Stage 2A merge did not land — abort and re-run Stage 2A close-out.
+
+- [ ] **Step 4: Confirm Stage 1G primitives are importable**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/python -c "from serena.tools.scalpel_primitives import (
+    ScalpelDryRunComposeTool, ScalpelRollbackTool, ScalpelTransactionRollbackTool,
+    ScalpelWorkspaceHealthTool, ScalpelCapabilitiesListTool,
+)
+print('OK')"
+```
+
+Expected: `OK`.
+
+- [ ] **Step 5: Register the `e2e` marker in `pyproject.toml`**
+
+Open `vendor/serena/pyproject.toml`. Locate the `[tool.pytest.ini_options]` table. Append `"e2e: end-to-end test against real LSP processes; opt-in via O2_SCALPEL_RUN_E2E=1 or pytest -m e2e"` to the `markers` list. If no `markers` list exists, add it:
+
+```toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "e2e: end-to-end test against real LSP processes; opt-in via O2_SCALPEL_RUN_E2E=1 or pytest -m e2e",
+]
+```
+
+If `markers` already exists with other entries (Stage 1A added some), append the `e2e` row preserving the existing rows.
+
+- [ ] **Step 6: Verify the marker registration**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest --markers 2>&1 | grep "e2e:"
+```
+
+Expected: one line containing `@pytest.mark.e2e: end-to-end test against real LSP processes; opt-in via O2_SCALPEL_RUN_E2E=1 or pytest -m e2e`.
+
+- [ ] **Step 7: Create the PROGRESS ledger**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/docs/superpowers/plans/stage-2b-results/PROGRESS.md` with the following content (substitute the captured SHAs for `<step-1 SHA>` / `<step-2 SHA>`):
+
+```markdown
+# Stage 2B — E2E Harness + 9 MVP Scenarios + Q3/Q4 Fixtures — PROGRESS
+
+| Task | Branch SHA (submodule) | Outcome | Follow-ups |
+|---|---|---|---|
+| T0 | <step-1 SHA> | OPEN | bootstrap |
+| T1 | | | |
+| T2 | | | |
+| T3 | | | |
+| T4 | | | |
+| T5 | | | |
+| T6 | | | |
+| T7 | | | |
+| T8 | | | |
+| T9 | | | |
+| T11 | | | |
+| T12 | | | |
+| T13 | | | |
+| T14 | | | |
+
+## Entry baseline
+
+- Submodule branch: `feature/stage-2b-e2e-harness-scenarios` from `origin/main` @ <step-1 SHA>
+- Parent branch: `feature/stage-2b-e2e-harness-scenarios` from `origin/develop` @ <step-2 SHA>
+- Stage 2A exit tag: `stage-2a-ergonomic-facades-complete`
+- Test baseline (run BEFORE any Stage 2B code): `pytest test/spikes/ -v` should be the Stage 2A green count with 0 failures, 0 errors. Capture exact count in PROGRESS T0 row Follow-ups.
+
+## E2E run command
+
+```bash
+cd vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/ -v -m e2e
+```
+
+Wall-clock budget: aggregate ≤ 12 min (scope-report §16.4 cap).
+```
+
+- [ ] **Step 8: Commit the bootstrap (submodule)**
+
+Run from `vendor/serena/`:
+```bash
+git add pyproject.toml
+git commit -m "test(stage-2b): register e2e pytest marker
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+```
+
+Capture SHA → record as T0 exit SHA in PROGRESS.
+
+- [ ] **Step 9: Commit the bootstrap (parent)**
+
+Run from repo root:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add docs/superpowers/plans/stage-2b-results/PROGRESS.md vendor/serena
+git commit -m "chore(stage-2b): T0 bootstrap — PROGRESS ledger + submodule pointer (e2e marker)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T0 row to `OUTCOME=DONE` in a follow-up commit.
+
+---
+
+### Task 1: Fixtures (`calcrs_e2e` + `calcpy_e2e`) + `conftest.py` harness boot
+
+**Files:**
+- Create: `vendor/serena/test/e2e/__init__.py`
+- Create: `vendor/serena/test/e2e/conftest.py`
+- Create: `vendor/serena/test/e2e/fixtures/calcrs_e2e/Cargo.toml`
+- Create: `vendor/serena/test/e2e/fixtures/calcrs_e2e/src/lib.rs`
+- Create: `vendor/serena/test/e2e/fixtures/calcrs_e2e/tests/byte_identity_test.rs`
+- Create: `vendor/serena/test/e2e/fixtures/calcpy_e2e/pyproject.toml`
+- Create: `vendor/serena/test/e2e/fixtures/calcpy_e2e/calcpy/__init__.py`
+- Create: `vendor/serena/test/e2e/fixtures/calcpy_e2e/calcpy/calcpy.py`
+- Create: `vendor/serena/test/e2e/fixtures/calcpy_e2e/tests/test_byte_identity.py`
+- Create: `vendor/serena/test/e2e/test_e2e_harness_smoke.py` (T1's TDD test)
+
+- [ ] **Step 1: Create the package marker**
+
+Write `vendor/serena/test/e2e/__init__.py`:
+
+```python
+"""End-to-end test suite — opt-in via O2_SCALPEL_RUN_E2E=1 or pytest -m e2e."""
+```
+
+- [ ] **Step 2: Write the Rust fixture — `Cargo.toml`**
+
+Write `vendor/serena/test/e2e/fixtures/calcrs_e2e/Cargo.toml`:
+
+```toml
+[package]
+name = "calcrs_e2e"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "calcrs_e2e"
+path = "src/lib.rs"
+```
+
+- [ ] **Step 3: Write the Rust fixture — `src/lib.rs` (kitchen-sink baseline)**
+
+Write `vendor/serena/test/e2e/fixtures/calcrs_e2e/src/lib.rs`:
+
+```rust
+//! calcrs_e2e — kitchen-sink baseline used by Stage 2B E2E scenarios.
+//!
+//! The four `mod` blocks below (`ast`, `errors`, `parser`, `eval`) are co-located
+//! here so the E1 4-way split scenario can move each `mod foo {...}` body into
+//! a sibling file (`src/ast.rs`, `src/errors.rs`, etc.) and the post-split
+//! `cargo test` continues to pass byte-identically against the baseline below.
+
+pub mod ast {
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Expr {
+        Num(i64),
+        Add(Box<Expr>, Box<Expr>),
+        Sub(Box<Expr>, Box<Expr>),
+        Mul(Box<Expr>, Box<Expr>),
+        Div(Box<Expr>, Box<Expr>),
+    }
+}
+
+pub mod errors {
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum CalcError {
+        ParseError(String),
+        DivisionByZero,
+    }
+}
+
+pub mod parser {
+    use super::ast::Expr;
+    use super::errors::CalcError;
+
+    pub fn parse(input: &str) -> Result<Expr, CalcError> {
+        let s = input.trim();
+        if let Some(idx) = s.rfind('+') {
+            let l = parse(&s[..idx])?;
+            let r = parse(&s[idx + 1..])?;
+            return Ok(Expr::Add(Box::new(l), Box::new(r)));
+        }
+        if let Some(idx) = s.rfind('-') {
+            if idx > 0 {
+                let l = parse(&s[..idx])?;
+                let r = parse(&s[idx + 1..])?;
+                return Ok(Expr::Sub(Box::new(l), Box::new(r)));
+            }
+        }
+        if let Some(idx) = s.rfind('*') {
+            let l = parse(&s[..idx])?;
+            let r = parse(&s[idx + 1..])?;
+            return Ok(Expr::Mul(Box::new(l), Box::new(r)));
+        }
+        if let Some(idx) = s.rfind('/') {
+            let l = parse(&s[..idx])?;
+            let r = parse(&s[idx + 1..])?;
+            return Ok(Expr::Div(Box::new(l), Box::new(r)));
+        }
+        s.parse::<i64>()
+            .map(Expr::Num)
+            .map_err(|e| CalcError::ParseError(e.to_string()))
+    }
+}
+
+pub mod eval {
+    use super::ast::Expr;
+    use super::errors::CalcError;
+
+    pub fn eval(expr: &Expr) -> Result<i64, CalcError> {
+        match expr {
+            Expr::Num(n) => Ok(*n),
+            Expr::Add(l, r) => Ok(eval(l)? + eval(r)?),
+            Expr::Sub(l, r) => Ok(eval(l)? - eval(r)?),
+            Expr::Mul(l, r) => Ok(eval(l)? * eval(r)?),
+            Expr::Div(l, r) => {
+                let rv = eval(r)?;
+                if rv == 0 {
+                    Err(CalcError::DivisionByZero)
+                } else {
+                    Ok(eval(l)? / rv)
+                }
+            }
+        }
+    }
+}
+
+pub use ast::Expr;
+pub use errors::CalcError;
+pub use eval::eval;
+pub use parser::parse;
+```
+
+- [ ] **Step 4: Write the Rust fixture — `tests/byte_identity_test.rs`**
+
+Write `vendor/serena/test/e2e/fixtures/calcrs_e2e/tests/byte_identity_test.rs`:
+
+```rust
+use calcrs_e2e::{eval, parse};
+
+#[test]
+fn add_two_plus_three() {
+    let e = parse("2+3").expect("parse");
+    assert_eq!(eval(&e).expect("eval"), 5);
+}
+
+#[test]
+fn mul_four_times_five() {
+    let e = parse("4*5").expect("parse");
+    assert_eq!(eval(&e).expect("eval"), 20);
+}
+
+#[test]
+fn div_hundred_by_four() {
+    let e = parse("100/4").expect("parse");
+    assert_eq!(eval(&e).expect("eval"), 25);
+}
+
+#[test]
+fn div_by_zero_errors() {
+    let e = parse("1/0").expect("parse");
+    assert!(eval(&e).is_err());
+}
+```
+
+- [ ] **Step 5: Write the Python fixture — `pyproject.toml`**
+
+Write `vendor/serena/test/e2e/fixtures/calcpy_e2e/pyproject.toml`:
+
+```toml
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "calcpy_e2e"
+version = "0.1.0"
+description = "Stage 2B E2E baseline — kitchen-sink calcpy used by E1-py / E9-py / E10-py"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["calcpy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+```
+
+- [ ] **Step 6: Write the Python fixture — `calcpy/__init__.py`**
+
+Write `vendor/serena/test/e2e/fixtures/calcpy_e2e/calcpy/__init__.py`:
+
+```python
+"""calcpy_e2e — kitchen-sink calcpy package for Stage 2B E2E scenarios."""
+
+from .calcpy import CalcError, DivisionByZero, Expr, evaluate, parse
+
+__all__ = ["CalcError", "DivisionByZero", "Expr", "evaluate", "parse"]
+```
+
+- [ ] **Step 7: Write the Python fixture — `calcpy/calcpy.py` (kitchen-sink baseline)**
+
+Write `vendor/serena/test/e2e/fixtures/calcpy_e2e/calcpy/calcpy.py`:
+
+```python
+"""Kitchen-sink baseline for Stage 2B E2E scenarios.
+
+The four future modules — ast, errors, parser, evaluator — are co-located
+here so the E1-py 4-way split scenario can move each cluster into a sibling
+file (`calcpy/ast.py`, `calcpy/errors.py`, etc.) and the post-split
+``pytest -q`` continues to pass byte-identically against the baseline below.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Union
+
+
+# --- ast cluster ----------------------------------------------------------
+
+@dataclass(frozen=True)
+class Num:
+    value: int
+
+
+@dataclass(frozen=True)
+class Add:
+    left: "Expr"
+    right: "Expr"
+
+
+@dataclass(frozen=True)
+class Sub:
+    left: "Expr"
+    right: "Expr"
+
+
+@dataclass(frozen=True)
+class Mul:
+    left: "Expr"
+    right: "Expr"
+
+
+@dataclass(frozen=True)
+class Div:
+    left: "Expr"
+    right: "Expr"
+
+
+Expr = Union[Num, Add, Sub, Mul, Div]
+
+
+# --- errors cluster -------------------------------------------------------
+
+class CalcError(Exception):
+    """Base class for calcpy errors."""
+
+
+class ParseError(CalcError):
+    pass
+
+
+class DivisionByZero(CalcError):
+    pass
+
+
+# --- parser cluster -------------------------------------------------------
+
+def parse(text: str) -> Expr:
+    s = text.strip()
+    for op_char, ctor in (("+", Add), ("-", Sub), ("*", Mul), ("/", Div)):
+        idx = s.rfind(op_char)
+        if idx > 0:
+            return ctor(parse(s[:idx]), parse(s[idx + 1 :]))
+    try:
+        return Num(int(s))
+    except ValueError as e:
+        raise ParseError(str(e)) from e
+
+
+# --- evaluator cluster ----------------------------------------------------
+
+def evaluate(expr: Expr) -> int:
+    if isinstance(expr, Num):
+        return expr.value
+    if isinstance(expr, Add):
+        return evaluate(expr.left) + evaluate(expr.right)
+    if isinstance(expr, Sub):
+        return evaluate(expr.left) - evaluate(expr.right)
+    if isinstance(expr, Mul):
+        return evaluate(expr.left) * evaluate(expr.right)
+    if isinstance(expr, Div):
+        r = evaluate(expr.right)
+        if r == 0:
+            raise DivisionByZero("division by zero")
+        return evaluate(expr.left) // r
+    raise ParseError(f"unknown expr {expr!r}")
+```
+
+- [ ] **Step 8: Write the Python fixture — `tests/test_byte_identity.py`**
+
+Write `vendor/serena/test/e2e/fixtures/calcpy_e2e/tests/test_byte_identity.py`:
+
+```python
+import pytest
+
+from calcpy import DivisionByZero, evaluate, parse
+
+
+def test_add_two_plus_three():
+    assert evaluate(parse("2+3")) == 5
+
+
+def test_mul_four_times_five():
+    assert evaluate(parse("4*5")) == 20
+
+
+def test_div_hundred_by_four():
+    assert evaluate(parse("100/4")) == 25
+
+
+def test_div_by_zero_raises():
+    with pytest.raises(DivisionByZero):
+        evaluate(parse("1/0"))
+```
+
+`DivisionByZero` is exported via `calcpy/__init__.py.__all__` so the import
+path stays stable across the E1-py 4-way split (after the split, the class
+moves to `calcpy/errors.py` but is still re-exported from the package root).
+
+- [ ] **Step 9: Write the harness conftest — `vendor/serena/test/e2e/conftest.py`**
+
+Write `vendor/serena/test/e2e/conftest.py`:
+
+```python
+"""Stage 2B end-to-end harness.
+
+Boots the full ScalpelRuntime against four real LSP processes (rust-analyzer,
+pylsp, basedpyright, ruff) and exposes a sync MCP-driver fixture that lets
+each scenario test invoke the 6 Stage 2A facades + 5 Stage 1G primitives
+the same way an MCP client would.
+
+Opt-in: set ``O2_SCALPEL_RUN_E2E=1`` or run with ``pytest -m e2e``.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+import time
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from serena.refactoring import STRATEGY_REGISTRY  # noqa: F401  (registry warm-up)
+from serena.tools.scalpel_facades import (
+    ScalpelExtractTool,
+    ScalpelImportsOrganizeTool,
+    ScalpelInlineTool,
+    ScalpelRenameTool,
+    ScalpelSplitFileTool,
+    ScalpelTransactionCommitTool,
+)
+from serena.tools.scalpel_primitives import (
+    ScalpelCapabilitiesListTool,
+    ScalpelDryRunComposeTool,
+    ScalpelRollbackTool,
+    ScalpelTransactionRollbackTool,
+    ScalpelWorkspaceHealthTool,
+)
+from serena.tools.scalpel_runtime import ScalpelRuntime
+
+E2E_DIR = Path(__file__).parent
+FIXTURES_DIR = E2E_DIR / "fixtures"
+CALCRS_BASELINE = FIXTURES_DIR / "calcrs_e2e"
+CALCPY_BASELINE = FIXTURES_DIR / "calcpy_e2e"
+
+
+def _e2e_enabled() -> bool:
+    if os.environ.get("O2_SCALPEL_RUN_E2E") == "1":
+        return True
+    return any("e2e" in arg for arg in sys.argv)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip every e2e-marked test unless the gate env var is set."""
+    if _e2e_enabled():
+        return
+    skip_marker = pytest.mark.skip(
+        reason="e2e suite gated; set O2_SCALPEL_RUN_E2E=1 or pytest -m e2e"
+    )
+    for item in items:
+        if "e2e" in item.keywords:
+            item.add_marker(skip_marker)
+
+
+def _which_or_skip(binary: str) -> str:
+    path = shutil.which(binary)
+    if path is None:
+        pytest.skip(f"{binary} not on PATH; required for Stage 2B E2E")
+    return path
+
+
+@pytest.fixture(scope="session")
+def cargo_bin() -> str:
+    return _which_or_skip("cargo")
+
+
+@pytest.fixture(scope="session")
+def python_bin() -> str:
+    return _which_or_skip("python3")
+
+
+@pytest.fixture(scope="session")
+def rust_analyzer_bin() -> str:
+    return _which_or_skip("rust-analyzer")
+
+
+@pytest.fixture(scope="session")
+def pylsp_bin() -> str:
+    return _which_or_skip("pylsp")
+
+
+@pytest.fixture(scope="session")
+def basedpyright_bin() -> str:
+    return _which_or_skip("basedpyright-langserver")
+
+
+@pytest.fixture(scope="session")
+def ruff_bin() -> str:
+    return _which_or_skip("ruff")
+
+
+@pytest.fixture
+def calcrs_e2e_root(tmp_path: Path) -> Path:
+    """Per-test clone of the calcrs_e2e baseline (so cargo sees a clean tree)."""
+    dest = tmp_path / "calcrs_e2e"
+    shutil.copytree(CALCRS_BASELINE, dest, dirs_exist_ok=False)
+    target_dir = dest / "target"
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    return dest.resolve(strict=False)
+
+
+@pytest.fixture
+def calcpy_e2e_root(tmp_path: Path) -> Path:
+    """Per-test clone of the calcpy_e2e baseline."""
+    dest = tmp_path / "calcpy_e2e"
+    shutil.copytree(CALCPY_BASELINE, dest, dirs_exist_ok=False)
+    return dest.resolve(strict=False)
+
+
+@pytest.fixture
+def scalpel_runtime(
+    rust_analyzer_bin: str,
+    pylsp_bin: str,
+    basedpyright_bin: str,
+    ruff_bin: str,
+) -> Iterator[ScalpelRuntime]:
+    """Boot a fresh ScalpelRuntime singleton for one test.
+
+    The runtime's spawn factory (Stage 2A T1) discovers the four LSP binaries
+    via ``shutil.which`` and lazily spawns them on first ``LspPool.acquire``.
+    """
+    ScalpelRuntime.reset_for_testing()
+    runtime = ScalpelRuntime.instance()
+    yield runtime
+    ScalpelRuntime.reset_for_testing()
+
+
+class _McpDriver:
+    """Thin sync wrapper that mirrors the MCP-server tool surface.
+
+    Each method instantiates the relevant Tool subclass and calls ``apply``
+    with the same kwargs an MCP client would pass. Tool subclasses bind to
+    the singleton ScalpelRuntime via ``ScalpelRuntime.instance()``, so the
+    ``scalpel_runtime`` fixture's reset-for-test isolates state.
+    """
+
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root
+
+    def _bind(self, tool_cls: type) -> Any:
+        tool = tool_cls()
+        tool.get_project_root = lambda: str(self._root)  # type: ignore[method-assign]
+        return tool
+
+    def split_file(self, **kwargs: Any) -> str:
+        return self._bind(ScalpelSplitFileTool).apply(**kwargs)
+
+    def extract(self, **kwargs: Any) -> str:
+        return self._bind(ScalpelExtractTool).apply(**kwargs)
+
+    def inline(self, **kwargs: Any) -> str:
+        return self._bind(ScalpelInlineTool).apply(**kwargs)
+
+    def rename(self, **kwargs: Any) -> str:
+        return self._bind(ScalpelRenameTool).apply(**kwargs)
+
+    def imports_organize(self, **kwargs: Any) -> str:
+        return self._bind(ScalpelImportsOrganizeTool).apply(**kwargs)
+
+    def transaction_commit(self, transaction_id: str) -> str:
+        return self._bind(ScalpelTransactionCommitTool).apply(
+            transaction_id=transaction_id
+        )
+
+    def dry_run_compose(self, steps: list[dict[str, Any]]) -> str:
+        return self._bind(ScalpelDryRunComposeTool).apply(steps=steps)
+
+    def rollback(self, checkpoint_id: str) -> str:
+        return self._bind(ScalpelRollbackTool).apply(checkpoint_id=checkpoint_id)
+
+    def transaction_rollback(self, transaction_id: str) -> str:
+        return self._bind(ScalpelTransactionRollbackTool).apply(
+            transaction_id=transaction_id
+        )
+
+    def workspace_health(self) -> str:
+        return self._bind(ScalpelWorkspaceHealthTool).apply()
+
+    def capabilities_list(self, language: str) -> str:
+        return self._bind(ScalpelCapabilitiesListTool).apply(language=language)
+
+
+@pytest.fixture
+def mcp_driver_rust(
+    scalpel_runtime: ScalpelRuntime, calcrs_e2e_root: Path
+) -> _McpDriver:
+    return _McpDriver(project_root=calcrs_e2e_root)
+
+
+@pytest.fixture
+def mcp_driver_python(
+    scalpel_runtime: ScalpelRuntime, calcpy_e2e_root: Path
+) -> _McpDriver:
+    return _McpDriver(project_root=calcpy_e2e_root)
+
+
+# --- wall-clock budget recorder (consumed by T13) -------------------------
+
+@pytest.fixture
+def wall_clock_record(request) -> Iterator[None]:
+    """Append per-test elapsed seconds to a session-shared list.
+
+    T13 (`test_wall_clock_budget.py`) reads the list at session-end and
+    asserts the aggregate ≤ 12 min on CI.
+    """
+    bucket = request.session.stash.setdefault(
+        "_e2e_wall_clock", []  # type: ignore[arg-type]
+    )
+    t0 = time.monotonic()
+    yield
+    elapsed = time.monotonic() - t0
+    bucket.append((request.node.name, elapsed))
+```
+
+- [ ] **Step 10: Write the harness-smoke test**
+
+Write `vendor/serena/test/e2e/test_e2e_harness_smoke.py`:
+
+```python
+"""T1 smoke test — assert the Stage 2B harness wires up cleanly.
+
+Does not run any facade; just proves:
+  - the e2e marker is registered;
+  - the scalpel_runtime fixture yields a ScalpelRuntime;
+  - both fixture trees are copied to per-test tmp dirs;
+  - the _McpDriver exposes every facade + primitive.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_runtime import ScalpelRuntime
+
+
+@pytest.mark.e2e
+def test_runtime_boots(scalpel_runtime: ScalpelRuntime) -> None:
+    assert isinstance(scalpel_runtime, ScalpelRuntime)
+    assert ScalpelRuntime.instance() is scalpel_runtime
+
+
+@pytest.mark.e2e
+def test_calcrs_root_clones(calcrs_e2e_root: Path) -> None:
+    assert (calcrs_e2e_root / "Cargo.toml").exists()
+    assert (calcrs_e2e_root / "src" / "lib.rs").exists()
+    assert (calcrs_e2e_root / "tests" / "byte_identity_test.rs").exists()
+    assert "tmp" in str(calcrs_e2e_root) or "/T/" in str(calcrs_e2e_root)
+
+
+@pytest.mark.e2e
+def test_calcpy_root_clones(calcpy_e2e_root: Path) -> None:
+    assert (calcpy_e2e_root / "pyproject.toml").exists()
+    assert (calcpy_e2e_root / "calcpy" / "calcpy.py").exists()
+    assert (calcpy_e2e_root / "calcpy" / "__init__.py").exists()
+
+
+@pytest.mark.e2e
+def test_mcp_drivers_bind(mcp_driver_rust, mcp_driver_python) -> None:
+    for driver in (mcp_driver_rust, mcp_driver_python):
+        for method_name in (
+            "split_file", "extract", "inline", "rename",
+            "imports_organize", "transaction_commit",
+            "dry_run_compose", "rollback", "transaction_rollback",
+            "workspace_health", "capabilities_list",
+        ):
+            assert callable(getattr(driver, method_name))
+```
+
+- [ ] **Step 11: Run the smoke test without the gate (must skip)**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_harness_smoke.py -v
+```
+
+Expected: 4 SKIPPED with reason `"e2e suite gated; set O2_SCALPEL_RUN_E2E=1 or pytest -m e2e"`.
+
+- [ ] **Step 12: Run the smoke test with the gate set (must pass)**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_harness_smoke.py -v -m e2e
+```
+
+Expected: 4 PASSED. If any fail:
+- `test_runtime_boots` FAIL → check that Stage 2A's `_default_spawn_fn` was actually replaced (not the placeholder). Re-run Stage 2A T1 verification.
+- `test_calcrs_root_clones` / `test_calcpy_root_clones` FAIL → fixture file missing; re-do Steps 2–8.
+- `test_mcp_drivers_bind` FAIL → Stage 2A facade import path drift; verify `serena.tools.scalpel_facades` exposes the 6 classes.
+
+- [ ] **Step 13: Verify the spike-suite green count is unchanged**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/ -v 2>&1 | tail -3
+```
+
+Expected: same green-count as the Stage 2A close-out baseline (recorded in PROGRESS T0). Stage 2B must not regress the spike suite.
+
+- [ ] **Step 14: Commit T1 (submodule)**
+
+Run from `vendor/serena/`:
+```bash
+git add test/e2e/
+git commit -m "test(stage-2b): T1 — E2E harness conftest + calcrs_e2e/calcpy_e2e fixtures + smoke test
+
+- four-LSP wiring via ScalpelRuntime singleton + reset_for_testing
+- per-test workspace clones via shutil.copytree
+- _McpDriver fixture exposing 6 facades + 5 primitives
+- O2_SCALPEL_RUN_E2E=1 gate on every @pytest.mark.e2e test
+- 4-test smoke suite proves the harness boots
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+```
+
+Capture SHA → record as T1 exit SHA in PROGRESS.
+
+- [ ] **Step 15: Commit T1 (parent — bump pointer + update ledger)**
+
+Run from repo root:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T1 — bump submodule (E2E harness + fixtures + smoke)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T1 row to `OUTCOME=DONE`.
+
+---
