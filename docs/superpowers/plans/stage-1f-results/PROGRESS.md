@@ -9,7 +9,7 @@ Built on: stage-1e-python-strategies-complete
 |---|---|---|---|---|
 | T0 | Bootstrap branches + ledger + verify Stage 1E exports     | e188af6d | GREEN | — |
 | T1 | capabilities.py — CapabilityRecord + CapabilityCatalog    | c46a2248 | GREEN (7/7) | — |
-| T2 | capabilities.py — build_capability_catalog() factory      | _pending_ | _pending_ | — |
+| T2 | capabilities.py — build_capability_catalog() factory      | 95771600 | GREEN (15/15) | — |
 | T3 | capabilities.py — _introspect_adapter_kinds()             | _pending_ | _pending_ | — |
 | T4 | golden-file baseline + --update-catalog-baseline plumbing | _pending_ | _pending_ | — |
 | T5 | drift gate test (test_stage_1f_t5_catalog_drift.py)       | _pending_ | _pending_ | — |
