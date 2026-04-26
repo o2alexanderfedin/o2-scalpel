@@ -14,7 +14,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | T4  | `_apply_priority()` — §11.1 priority table                             | `c17e4f23` | OK | — |
 | T5  | `_dedup()` — title + WorkspaceEdit structural equality                 | `111f6735` | OK | — |
 | T6  | resolve-then-classify (deferred + direct)                              | `263fdf1d` | OK | — |
-| T7  | §11.7 four invariants (apply / ast.parse / disabled / boundary)        | _pending_ | _pending_ | — |
+| T7  | §11.7 four invariants (apply / ast.parse / disabled / boundary)        | `82685365` | OK | — |
 | T8  | `merge_rename()` + P6 whole-file ↔ surgical reconciliation             | _pending_ | _pending_ | — |
 | T9  | provenance + edit-attribution log (§11.4 + §11.5) + replay             | _pending_ | _pending_ | — |
 | T10 | §11.2 six server-disagreement cases                                    | _pending_ | _pending_ | — |
