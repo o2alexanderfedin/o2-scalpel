@@ -16,7 +16,7 @@ Parent branch: `feature/stage-1j-plugin-skill-generator` (off `develop` @ `8ed62
 | T7 | `_render_session_start_hook` | 5c9ec82c | OK — 5/5 green | — |
 | T8 | `PluginGenerator.emit` composition | 66251d7b | OK — 7/7 green | — |
 | T9 | CLI entry `o2-scalpel-newplugin` | 11aa09a7 | OK — 5/5 green; --help verified | STRATEGY_REGISTRY direct lookup (plan deviation) |
-| T10 | Golden-file snapshots (rust + python) | _pending_ | _pending_ | — |
+| T10 | Golden-file snapshots (rust + python) | 16738294 | OK — 2/2 green; 11 golden files | — |
 | T11 | Stage 1I refactor (`make generate-plugins`) | _pending_ | _pending_ | — |
 | T12 | E2E hook + uvx install + tools/list verify | _pending_ | _pending_ | — |
 | T13 | ff-merge submodule + parent merge + tag | _pending_ | _pending_ | — |
