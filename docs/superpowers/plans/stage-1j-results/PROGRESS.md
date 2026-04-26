@@ -7,7 +7,7 @@ Parent branch: `feature/stage-1j-plugin-skill-generator` (off `develop` @ `8ed62
 | Task | Title | Submodule SHA | Outcome | Follow-ups |
 |---|---|---|---|---|
 | T0 | Bootstrap branches + ledger + `_FakeStrategy` fixture | df9c270e | OK — 2/2 green | — |
-| T1 | Pydantic schemas (PluginManifest, SkillFrontmatter, MarketplaceManifest) | _pending_ | _pending_ | — |
+| T1 | Pydantic schemas (PluginManifest, SkillFrontmatter, MarketplaceManifest) | edd5de0c | OK — 5/5 green | HttpUrl→str+regex (plan deviation, Pyright cleanliness) |
 | T2 | `_render_plugin_json` | _pending_ | _pending_ | — |
 | T3 | `_render_mcp_json` | _pending_ | _pending_ | — |
 | T4 | `_render_marketplace_json` | _pending_ | _pending_ | — |
