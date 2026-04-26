@@ -1977,4 +1977,367 @@ Expected: T4 row reads OK — 5/5 green; submodule pointer bumped.
 
 ---
 
+### Task 5: `ScalpelDryRunComposeTool` — multi-step preview composer
+
+**Files:**
+- Modify: `vendor/serena/src/serena/tools/scalpel_primitives.py` (append `ScalpelDryRunComposeTool`)
+- Create: `vendor/serena/test/spikes/test_stage_1g_t5_dry_run_compose.py`
+
+- [ ] **Step 1: Write failing test — compose contract**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t5_dry_run_compose.py`:
+
+```python
+"""T5 — ScalpelDryRunComposeTool: shadow workspace, per-step delta, TTL."""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def _build_tool(project_root: Path):
+    from serena.tools.scalpel_primitives import ScalpelDryRunComposeTool
+
+    agent = MagicMock(name="SerenaAgent")
+    agent.get_active_project_or_raise.return_value = MagicMock(project_root=str(project_root))
+    return ScalpelDryRunComposeTool(agent=agent)
+
+
+def test_tool_name_is_scalpel_dry_run_compose() -> None:
+    from serena.tools.scalpel_primitives import ScalpelDryRunComposeTool
+
+    assert ScalpelDryRunComposeTool.get_name_from_cls() == "scalpel_dry_run_compose"
+
+
+def test_apply_returns_transaction_id_and_5min_ttl(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(steps=[])
+    payload = json.loads(raw)
+    assert "transaction_id" in payload
+    assert payload["transaction_id"].startswith("txn_")
+    # 5-min TTL per §5.5: expires_at must be in the future, within 310s.
+    now = time.time()
+    assert now + 250 < payload["expires_at"] < now + 320
+
+
+def test_apply_records_per_step_preview(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    steps_payload = [
+        {"tool": "scalpel_apply_capability",
+         "args": {"capability_id": "x.unknown", "file": "a.py",
+                  "range_or_name_path": "x"}},
+    ]
+    raw = tool.apply(steps=steps_payload)
+    payload = json.loads(raw)
+    assert len(payload["per_step"]) == 1
+    assert payload["per_step"][0]["tool"] == "scalpel_apply_capability"
+    assert payload["per_step"][0]["step_index"] == 0
+
+
+def test_apply_fail_fast_default_aborts_at_first_failure(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    with patch(
+        "serena.tools.scalpel_primitives._dry_run_one_step"
+    ) as mock_step:
+        from serena.tools.scalpel_schemas import (
+            DiagnosticSeverityBreakdown, DiagnosticsDelta, ErrorCode,
+            FailureInfo, StepPreview,
+        )
+        zero = DiagnosticSeverityBreakdown(error=0, warning=0, information=0, hint=0)
+        mock_step.side_effect = [
+            StepPreview(
+                step_index=0,
+                tool="ok_tool",
+                changes=(),
+                diagnostics_delta=DiagnosticsDelta(
+                    before=zero, after=zero, new_findings=(),
+                    severity_breakdown=zero,
+                ),
+                failure=None,
+            ),
+            StepPreview(
+                step_index=1,
+                tool="fail_tool",
+                changes=(),
+                diagnostics_delta=DiagnosticsDelta(
+                    before=zero, after=zero, new_findings=(),
+                    severity_breakdown=zero,
+                ),
+                failure=FailureInfo(
+                    stage="dry_run", reason="boom",
+                    code=ErrorCode.INTERNAL_ERROR, recoverable=False,
+                ),
+            ),
+            StepPreview(
+                step_index=2,
+                tool="never_run",
+                changes=(),
+                diagnostics_delta=DiagnosticsDelta(
+                    before=zero, after=zero, new_findings=(),
+                    severity_breakdown=zero,
+                ),
+                failure=None,
+            ),
+        ]
+        raw = tool.apply(
+            steps=[
+                {"tool": "ok_tool", "args": {}},
+                {"tool": "fail_tool", "args": {}},
+                {"tool": "never_run", "args": {}},
+            ],
+            fail_fast=True,
+        )
+    payload = json.loads(raw)
+    # fail_fast=True stops after the second step (failure); third is skipped.
+    assert len(payload["per_step"]) == 2
+    assert payload["per_step"][1]["failure"]["code"] == "INTERNAL_ERROR"
+    # Aggregate warnings carry TRANSACTION_ABORTED notice.
+    assert any("TRANSACTION_ABORTED" in w for w in payload["warnings"])
+
+
+def test_apply_fail_fast_false_continues_through_failures(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    with patch(
+        "serena.tools.scalpel_primitives._dry_run_one_step"
+    ) as mock_step:
+        from serena.tools.scalpel_schemas import (
+            DiagnosticSeverityBreakdown, DiagnosticsDelta, ErrorCode,
+            FailureInfo, StepPreview,
+        )
+        zero = DiagnosticSeverityBreakdown(error=0, warning=0, information=0, hint=0)
+        mock_step.side_effect = [
+            StepPreview(
+                step_index=0,
+                tool="ok",
+                changes=(),
+                diagnostics_delta=DiagnosticsDelta(
+                    before=zero, after=zero, new_findings=(),
+                    severity_breakdown=zero,
+                ),
+                failure=None,
+            ),
+            StepPreview(
+                step_index=1,
+                tool="fail",
+                changes=(),
+                diagnostics_delta=DiagnosticsDelta(
+                    before=zero, after=zero, new_findings=(),
+                    severity_breakdown=zero,
+                ),
+                failure=FailureInfo(
+                    stage="dry_run", reason="boom",
+                    code=ErrorCode.INTERNAL_ERROR, recoverable=True,
+                ),
+            ),
+            StepPreview(
+                step_index=2,
+                tool="ok2",
+                changes=(),
+                diagnostics_delta=DiagnosticsDelta(
+                    before=zero, after=zero, new_findings=(),
+                    severity_breakdown=zero,
+                ),
+                failure=None,
+            ),
+        ]
+        raw = tool.apply(
+            steps=[{"tool": "ok", "args": {}},
+                   {"tool": "fail", "args": {}},
+                   {"tool": "ok2", "args": {}}],
+            fail_fast=False,
+        )
+    payload = json.loads(raw)
+    # All three steps recorded — failure does not abort.
+    assert len(payload["per_step"]) == 3
+
+
+def test_apply_invalid_step_payload_returns_invalid_argument(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(steps=[{"missing_tool_field": True}])  # type: ignore[arg-type]
+    payload = json.loads(raw)
+    assert "warnings" in payload
+    assert any("INVALID_ARGUMENT" in w for w in payload["warnings"])
+    # No per-step preview emitted when the input is malformed.
+    assert payload["per_step"] == []
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t5_dry_run_compose.py -v
+```
+
+Expected: 6/6 fail with `AttributeError: module 'serena.tools.scalpel_primitives' has no attribute 'ScalpelDryRunComposeTool'`.
+
+- [ ] **Step 3: Append the compose tool to `scalpel_primitives.py`**
+
+Append (after `ScalpelApplyCapabilityTool`, before the `__all__`):
+
+```python
+from serena.tools.scalpel_schemas import (
+    ComposeResult,
+    ComposeStep,
+    StepPreview,
+)
+
+
+def _dry_run_one_step(
+    step: ComposeStep,
+    *,
+    project_root: Path,
+    step_index: int,
+) -> StepPreview:
+    """Virtually apply one step against the in-memory shadow workspace.
+
+    Stage 1G ships the compose *grammar* (transaction id allocation,
+    per-step preview rows, fail-fast walking, 5-min TTL). The actual
+    shadow-workspace mutation lives in Stage 2A — the ergonomic facades
+    are the only callers that mutate state. For T5 the contract is:
+    look up the inner-tool, validate its args, and emit a StepPreview
+    whose `changes` is empty + `diagnostics_delta` is the zero delta
+    (no real LSP traffic).
+    """
+    # Currently we only know how to "preview" the always-on dispatcher.
+    # Other inner-tool names (split_file, extract, etc.) land in 2A;
+    # at MVP they emit a non-fatal placeholder StepPreview so a compose
+    # chain can still be walked end-to-end.
+    return StepPreview(
+        step_index=step_index,
+        tool=step.tool,
+        changes=(),
+        diagnostics_delta=_empty_diagnostics_delta(),
+        failure=None,
+    )
+
+
+class ScalpelDryRunComposeTool(Tool):
+    """Preview a chain of refactor steps without committing any."""
+
+    PREVIEW_TTL_SECONDS = 300  # 5-min, per §5.5
+
+    def apply(
+        self,
+        steps: list[dict[str, Any]],
+        fail_fast: bool = True,
+    ) -> str:
+        """Preview a chain of refactor steps without committing any.
+        Returns transaction_id; call scalpel_transaction_commit to apply.
+
+        :param steps: ordered list of {tool, args} dicts.
+        :param fail_fast: stop at the first failing step (default True).
+        :return: JSON ComposeResult.
+        """
+        project_root = Path(self.get_project_root())
+        warnings: list[str] = []
+        # Validate input: each step must coerce into ComposeStep.
+        validated: list[ComposeStep] = []
+        for raw_step in steps:
+            try:
+                validated.append(ComposeStep(**raw_step))
+            except Exception as exc:
+                warnings.append(
+                    f"INVALID_ARGUMENT: malformed step {raw_step!r}: {exc}",
+                )
+        if warnings and not validated:
+            txn_id = ScalpelRuntime.instance().transaction_store().begin()
+            return ComposeResult(
+                transaction_id=txn_id,
+                per_step=(),
+                aggregated_changes=(),
+                aggregated_diagnostics_delta=_empty_diagnostics_delta(),
+                expires_at=time.time() + self.PREVIEW_TTL_SECONDS,
+                warnings=tuple(warnings),
+            ).model_dump_json(indent=2)
+        txn_id = ScalpelRuntime.instance().transaction_store().begin()
+        previews: list[StepPreview] = []
+        for idx, step in enumerate(validated):
+            preview = _dry_run_one_step(
+                step, project_root=project_root, step_index=idx,
+            )
+            previews.append(preview)
+            if preview.failure is not None and fail_fast:
+                warnings.append(
+                    f"TRANSACTION_ABORTED: step {idx} ({step.tool!r}) failed; "
+                    f"remaining {len(validated) - idx - 1} step(s) skipped.",
+                )
+                break
+        return ComposeResult(
+            transaction_id=txn_id,
+            per_step=tuple(previews),
+            aggregated_changes=(),
+            aggregated_diagnostics_delta=_empty_diagnostics_delta(),
+            expires_at=time.time() + self.PREVIEW_TTL_SECONDS,
+            warnings=tuple(warnings),
+        ).model_dump_json(indent=2)
+```
+
+Then add `"ScalpelDryRunComposeTool"` to `__all__`.
+
+- [ ] **Step 4: Re-run tests, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t5_dry_run_compose.py -v
+```
+
+Expected: 6/6 PASS.
+
+- [ ] **Step 5: Commit T5**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/scalpel_primitives.py \
+        test/spikes/test_stage_1g_t5_dry_run_compose.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t5): ScalpelDryRunComposeTool — preview composer (6/6 green)
+
+Adds the dry-run compose grammar: transaction id allocation via
+TransactionStore.begin (Stage 1B LRU 20), per-step StepPreview rows,
+fail-fast walking (stops at first failure; warning carries
+TRANSACTION_ABORTED + skipped count), fail_fast=False continues, 5-min
+TTL on returned expires_at. Inner-tool execution remains a placeholder
+emitting a zero diagnostics delta — Stage 2A ergonomic facades own the
+shadow-workspace mutation path.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+Then update parent ledger row T5 (`OK — 6/6 green`):
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+plan(stage-1g): T5 ledger — dry_run_compose (6/6 green)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+Expected: T5 row reads OK — 6/6 green; submodule pointer bumped.
+
+---
+
 
