@@ -1,5 +1,16 @@
 # Stage 3 (v0.2.0) — Ergonomic facades + long-tail E2E Implementation Plan
 
+**Status:** ✅ **COMPLETE** at tag `v0.2.0-stage-3-complete` (2026-04-26).
+- T1–T3 (Rust facades waves A–C, 12): submodule commit `3a7c8275`.
+- T4–T5 (Python facades waves A–B, 8): submodule commit `cef8ec85`.
+- T6 (Rust E2E E13–E16, 4): submodule commit `4ae3d99e`.
+- T7 (Python E2E E4/5/8/11-py, 4): submodule commit `4ae3d99e`.
+- T8 (server-extension whitelist): submodule commit `c3df8812`.
+- T9 (README + install docs): parent commit `73be3bd`.
+- T10 (ff-merge + tag): tag `v0.2.0-stage-3-complete` on parent `389c230` + submodule `4ae3d99e`.
+
+Spike-suite delta: 614 → 680 (+66). E2E: 18 MVP-passing + 2 Stage 3 passing (E13 verify_after_refactor, E5-py byte-identity).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the 12 Stage 3 Rust ergonomic facades + 8 Stage 3 Python facades + 8 long-tail E2E scenarios + server-extension whitelist tests + README/install docs that round out the v0.2.0 release immediately after the v0.2.0 critical-path (`v0.2.0-critical-path-complete`).
