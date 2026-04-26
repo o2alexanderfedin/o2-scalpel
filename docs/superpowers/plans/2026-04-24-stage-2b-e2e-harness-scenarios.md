@@ -2495,3 +2495,727 @@ Co-Authored-By: AI Hive(R) <noreply@o2.services>"
 Update PROGRESS T9 row to `OUTCOME=DONE`.
 
 ---
+
+### Task 11: Q3 catalog-gate-blind-spot fixtures
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_q3_catalog_gate_blind_spots.py`
+- Create: `vendor/serena/test/e2e/baselines/basedpyright_action_titles.json`
+- Create: `vendor/serena/test/e2e/baselines/basedpyright_diagnostic_count.json`
+
+**Scope:** Per scope-report §15.4a, the catalog-drift gate (Stage 1F) catches additions/removals/renames but misses *title-text drift* (basedpyright changes the human-readable string of an existing action) and *diagnostic-count drift* (basedpyright adds/removes diagnostics on the same fixture). Two new fixtures plug those blind spots.
+
+- [ ] **Step 1: Write the action-title baseline JSON**
+
+Write `vendor/serena/test/e2e/baselines/basedpyright_action_titles.json`:
+
+```json
+{
+  "schema_version": 1,
+  "basedpyright_version": "1.39.3",
+  "action_kinds": {
+    "source.organizeImports": {
+      "title": "Organize Imports",
+      "description": "Sort imports and remove unused entries"
+    },
+    "quickfix.basedpyright.autoimport": {
+      "title": "Add import",
+      "description": "Synthesize import for an unresolved symbol"
+    },
+    "quickfix.basedpyright.pyrightignore": {
+      "title": "Add pyright ignore",
+      "description": "Insert `# pyright: ignore[<rule>]` comment"
+    },
+    "source.organizeImports.basedpyright": {
+      "title": "Organize Imports (basedpyright)",
+      "description": "basedpyright-specific organize-imports flavor"
+    }
+  }
+}
+```
+
+If the actual title strings observed at run-time differ, update this baseline (the test reports the diff in its failure message — copy the observed values verbatim).
+
+- [ ] **Step 2: Write the diagnostic-count baseline JSON**
+
+Write `vendor/serena/test/e2e/baselines/basedpyright_diagnostic_count.json`:
+
+```json
+{
+  "schema_version": 1,
+  "basedpyright_version": "1.39.3",
+  "fixture": "calcpy_e2e",
+  "max_diagnostics": 0,
+  "expected_rules": [],
+  "explanation": "calcpy_e2e baseline must be diagnostic-clean on basedpyright 1.39.3; any diagnostic = basedpyright bump introduced new check or fixture regressed."
+}
+```
+
+- [ ] **Step 3: Write the Q3 fixtures test**
+
+Write `vendor/serena/test/e2e/test_q3_catalog_gate_blind_spots.py`:
+
+```python
+"""Q3 — catalog-gate blind-spot fixtures.
+
+Per scope-report §15.4a:
+  - test_action_title_stability snapshots literal title strings basedpyright
+    emits for the four MVP action kinds.
+  - test_diagnostic_count_calcpy asserts basedpyright emits ≤ N diagnostics
+    on the calcpy_e2e baseline (catches v1.32.0 / v1.39.0-style drift).
+
+Both are MVP gates on every basedpyright bump.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+BASELINES_DIR = Path(__file__).parent / "baselines"
+ACTION_TITLES_BASELINE = BASELINES_DIR / "basedpyright_action_titles.json"
+DIAG_COUNT_BASELINE = BASELINES_DIR / "basedpyright_diagnostic_count.json"
+
+
+@pytest.mark.e2e
+def test_action_title_stability(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    """Snapshot test: basedpyright's literal title strings for the 4 MVP
+    action kinds must match the checked-in baseline byte-for-byte. Drift
+    means a basedpyright bump silently changed user-visible UX.
+    """
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+
+    # Inject a redundant import so organize-imports has a non-trivial action.
+    src.write_text(
+        "import sys\nimport sys\n" + src.read_text(encoding="utf-8")
+    )
+
+    # Drive imports_organize with engine=basedpyright explicitly to force
+    # basedpyright to be the action source.
+    organize_json = mcp_driver_python.imports_organize(
+        files=[str(src)],
+        engine="basedpyright",
+        dry_run=True,
+        language="python",
+    )
+    organize = RefactorResult.model_validate_json(organize_json)
+    assert organize.preview_token is not None
+
+    # Extract the live action titles from the dry-run preview.
+    actions = organize.applied_actions or []
+    live_titles: dict[str, dict[str, str]] = {}
+    for a in actions:
+        if a.kind in (
+            "source.organizeImports",
+            "quickfix.basedpyright.autoimport",
+            "quickfix.basedpyright.pyrightignore",
+            "source.organizeImports.basedpyright",
+        ):
+            live_titles[a.kind] = {
+                "title": a.title or "",
+                "description": getattr(a, "description", "") or "",
+            }
+
+    baseline = json.loads(ACTION_TITLES_BASELINE.read_text(encoding="utf-8"))
+    expected_kinds = baseline["action_kinds"]
+
+    for kind, expected in expected_kinds.items():
+        if kind not in live_titles:
+            # Not all 4 kinds will fire on this fixture — only assert the ones
+            # that did fire match the baseline byte-for-byte.
+            continue
+        live = live_titles[kind]
+        assert live["title"] == expected["title"], (
+            f"basedpyright {baseline['basedpyright_version']} TITLE drift on {kind!r}:\n"
+            f"  expected: {expected['title']!r}\n"
+            f"  got:      {live['title']!r}\n"
+            f"Re-baseline if this drift is intentional."
+        )
+
+
+@pytest.mark.e2e
+def test_diagnostic_count_calcpy(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    """basedpyright must emit ≤ N diagnostics on the clean baseline."""
+    baseline = json.loads(DIAG_COUNT_BASELINE.read_text(encoding="utf-8"))
+    max_diag = baseline["max_diagnostics"]
+
+    health_json = mcp_driver_python.workspace_health()
+    health = json.loads(health_json)
+    # Stage 1G workspace_health surfaces per-server diagnostic counts under
+    # `diagnostics_by_server`.
+    by_server = health.get("diagnostics_by_server") or {}
+    bp_count = by_server.get("basedpyright", 0)
+
+    assert bp_count <= max_diag, (
+        f"basedpyright {baseline['basedpyright_version']} emitted {bp_count} "
+        f"diagnostics on calcpy_e2e (baseline ≤ {max_diag}). "
+        f"This is a catalog-gate blind spot per Q3; either fix the fixture "
+        f"or re-baseline `basedpyright_diagnostic_count.json` if the new "
+        f"diagnostics are intentional."
+    )
+```
+
+- [ ] **Step 4: Run T11**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_q3_catalog_gate_blind_spots.py -v -m e2e --tb=short
+```
+
+Expected: 2 PASSED in ~10–30 s.
+
+- [ ] **Step 5: Commit T11**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_q3_catalog_gate_blind_spots.py test/e2e/baselines/
+git commit -m "test(stage-2b): T11 — Q3 catalog-gate blind-spot fixtures (title-stability + diag-count)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T11 — bump submodule (Q3 fixtures)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T11 row to `OUTCOME=DONE`.
+
+---
+
+### Task 12: Q4 workspace-boundary integration tests
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_q4_workspace_boundary_integration.py`
+
+**Scope:** Per scope-report §15.4b, three sub-tests lock the workspace-boundary path-filter behavior independently of the E11 happy-path:
+1. `test_ssr_rejects_registry_edit` — synthesized `WorkspaceEdit` with a `~/.cargo/registry/...` path is rejected atomically; in-workspace file untouched; `OutsideWorkspace` annotation alone does not gate (path filter does).
+2. `test_rename_shadowing_warns_but_applies` — non-`OutsideWorkspace` `needsConfirmation: true` annotation does NOT block apply; `RefactorResult.warnings` contains a `SemanticShiftWarning`.
+3. `test_extra_paths_opt_in` — `O2_SCALPEL_WORKSPACE_EXTRA_PATHS=<vendored-dir>` allows edits in the vendored path; warning still emitted.
+
+These tests use the in-process **Stage 1A `is_in_workspace`** + Stage 1B `LanguageServerCodeEditor._apply_workspace_edit` pipeline directly via constructed `WorkspaceEdit` payloads — they don't need an LSP to fire. (The E11 scenario in T8 is the LSP-driven counterpart.)
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_q4_workspace_boundary_integration.py`:
+
+```python
+"""Q4 workspace-boundary integration tests.
+
+Per scope-report §15.4b — three sub-tests independent of rust-analyzer's
+exact label text. Keyed on annotation id `OutsideWorkspace` and
+`needs_confirmation: true` so the tests survive RA version bumps.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+from solidlsp.ls import SolidLanguageServer
+from serena.refactoring.checkpoints import CheckpointStore
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+def _fake_workspace_edit(
+    in_workspace_path: Path,
+    out_of_workspace_path: Path,
+    annotation: str | None = None,
+    needs_confirmation: bool = False,
+) -> dict:
+    """Construct a WorkspaceEdit that touches one in-workspace and one
+    out-of-workspace path. Optionally tag with a changeAnnotations entry.
+    """
+    document_changes = [
+        {
+            "textDocument": {"uri": in_workspace_path.as_uri(), "version": 1},
+            "edits": [{"range": {
+                "start": {"line": 0, "character": 0},
+                "end":   {"line": 0, "character": 0},
+            }, "newText": "# in-workspace edit\n"}],
+        },
+        {
+            "textDocument": {"uri": out_of_workspace_path.as_uri(), "version": 1},
+            "edits": [{"range": {
+                "start": {"line": 0, "character": 0},
+                "end":   {"line": 0, "character": 0},
+            }, "newText": "# out-of-workspace edit\n"}],
+        },
+    ]
+    edit: dict = {"documentChanges": document_changes}
+    if annotation is not None:
+        ann_id = annotation
+        edit["changeAnnotations"] = {
+            ann_id: {
+                "label": ann_id,
+                "needsConfirmation": needs_confirmation,
+                "description": f"{ann_id} test annotation",
+            }
+        }
+        # Tag the second documentChange with the annotation.
+        edit["documentChanges"][1]["annotationId"] = ann_id
+    return edit
+
+
+@pytest.mark.e2e
+def test_ssr_rejects_registry_edit(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+    tmp_path: Path,
+) -> None:
+    """A WorkspaceEdit whose documentChanges include a path under
+    ~/.cargo/registry/... (simulated via tmp_path/registry/) is atomically
+    rejected with OUT_OF_WORKSPACE_EDIT_BLOCKED. The in-workspace file is
+    NOT modified. The OutsideWorkspace annotation alone does not gate.
+    """
+    in_path = calcrs_e2e_root / "src" / "lib.rs"
+    pre_text = in_path.read_text(encoding="utf-8")
+    out_path = tmp_path / "registry" / "fakelib-1.0.0" / "src" / "lib.rs"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("// pre-existing out-of-workspace file\n")
+
+    edit = _fake_workspace_edit(in_path, out_path, annotation="OutsideWorkspace",
+                                needs_confirmation=True)
+
+    # Drive via the dispatcher, which invokes the workspace-boundary guard
+    # before any LSP traffic. Stage 1G `scalpel_apply_capability` accepts an
+    # explicit pre-built WorkspaceEdit via capability_id="raw.apply_edit"
+    # (per Stage 1G T4 escape hatch).
+    runtime = mcp_driver_rust._bind  # type: ignore[attr-defined]
+    # We use a low-level path: directly call the editor with the synthesized
+    # WorkspaceEdit so the test does not depend on a specific RA action.
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+    rt = ScalpelRuntime.instance()
+    editor = rt.editor_for_workspace(calcrs_e2e_root)
+
+    result = editor.try_apply_workspace_edit(
+        edit=edit,
+        workspace_folders=[calcrs_e2e_root],
+        extra_paths=[],
+    )
+    assert isinstance(result, RefactorResult)
+    assert result.applied is False
+    assert result.failure is not None
+    assert result.failure.code == "OUT_OF_WORKSPACE_EDIT_BLOCKED", (
+        f"expected OUT_OF_WORKSPACE_EDIT_BLOCKED; got {result.failure.code!r}"
+    )
+    rejected = result.failure.details.get("rejected_paths") or []
+    assert any(str(out_path) in p for p in rejected)
+    # In-workspace file untouched (atomic reject).
+    assert in_path.read_text(encoding="utf-8") == pre_text
+
+
+@pytest.mark.e2e
+def test_rename_shadowing_warns_but_applies(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+) -> None:
+    """A non-OutsideWorkspace annotation with needsConfirmation=true
+    (e.g., rename-shadowing) does NOT block the apply; warnings list a
+    SemanticShiftWarning. Both paths are in-workspace.
+    """
+    in_a = calcrs_e2e_root / "src" / "lib.rs"
+    in_b = calcrs_e2e_root / "src" / "lib.rs"  # both in-workspace
+
+    edit = _fake_workspace_edit(in_a, in_b, annotation="ShadowsExisting",
+                                needs_confirmation=True)
+
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+    rt = ScalpelRuntime.instance()
+    editor = rt.editor_for_workspace(calcrs_e2e_root)
+    result = editor.try_apply_workspace_edit(
+        edit=edit,
+        workspace_folders=[calcrs_e2e_root],
+        extra_paths=[],
+    )
+    assert result.applied is True, (
+        f"shadowing annotation incorrectly blocked apply: {result.failure}"
+    )
+    assert result.warnings is not None
+    shadow_warnings = [
+        w for w in result.warnings if w.label == "ShadowsExisting"
+    ]
+    assert len(shadow_warnings) >= 1, (
+        f"missing SemanticShiftWarning for ShadowsExisting: {result.warnings}"
+    )
+
+
+@pytest.mark.e2e
+def test_extra_paths_opt_in(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Setting O2_SCALPEL_WORKSPACE_EXTRA_PATHS=<vendored-dir> allows edits
+    in the vendored path; warning still emitted but apply succeeds.
+    """
+    in_path = calcrs_e2e_root / "src" / "lib.rs"
+    vendored = tmp_path / "vendored_dep"
+    vendored.mkdir(parents=True, exist_ok=True)
+    out_path = vendored / "lib.rs"
+    out_path.write_text("// vendored\n")
+
+    monkeypatch.setenv("O2_SCALPEL_WORKSPACE_EXTRA_PATHS", str(vendored))
+
+    edit = _fake_workspace_edit(in_path, out_path)
+
+    from serena.tools.scalpel_runtime import ScalpelRuntime, parse_workspace_extra_paths
+    rt = ScalpelRuntime.instance()
+    editor = rt.editor_for_workspace(calcrs_e2e_root)
+    extra_paths = parse_workspace_extra_paths(
+        os.environ["O2_SCALPEL_WORKSPACE_EXTRA_PATHS"]
+    )
+    result = editor.try_apply_workspace_edit(
+        edit=edit,
+        workspace_folders=[calcrs_e2e_root],
+        extra_paths=extra_paths,
+    )
+    assert result.applied is True, (
+        f"EXTRA_PATHS opt-in did not allow vendored edit: {result.failure}"
+    )
+```
+
+- [ ] **Step 2: Run T12**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_q4_workspace_boundary_integration.py -v -m e2e --tb=short
+```
+
+Expected: 3 PASSED in ~5–20 s (no LSP traffic; pure in-process editor calls).
+
+If `editor_for_workspace` or `parse_workspace_extra_paths` is missing on `ScalpelRuntime`:
+- Stage 2A T1 should have exposed both as public surface. Verify per Stage 2A T1 step "expose `parse_workspace_extra_paths()` helper for Q4". If not, file a follow-up against Stage 2A and stub the missing helper inline in the test (using `os.environ["O2_SCALPEL_WORKSPACE_EXTRA_PATHS"].split(":")` as the parser).
+
+- [ ] **Step 3: Commit T12**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_q4_workspace_boundary_integration.py
+git commit -m "test(stage-2b): T12 — Q4 workspace-boundary integration (registry-reject + shadow-warn + EXTRA_PATHS)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T12 — bump submodule (Q4 integration tests)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T12 row to `OUTCOME=DONE`.
+
+---
+
+### Task 13: Wall-clock budget enforcement
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_wall_clock_budget.py`
+
+**Scope:** Per scope-report §16.4: full E2E suite must complete in ≤ 12 min on the CI runner. T13 reads the `_e2e_wall_clock` session-stash list (populated by every scenario's `wall_clock_record` fixture in T2..T9, T11, T12) and asserts the aggregate ≤ 720 s. Soft per-scenario warnings are logged but do not fail.
+
+T13 runs LAST in the suite via `pytest`'s order-of-collection rule (alphabetic; `test_wall_clock_budget.py` ends in `_z` after rename); `--last-failed` semantics also place it last when re-run. The assertion is gated by `O2_SCALPEL_E2E_BUDGET_ASSERT=1` so local devs can run the suite without the hard fail (the bucket is still printed for forensics).
+
+- [ ] **Step 1: Write the budget test**
+
+Write `vendor/serena/test/e2e/test_wall_clock_budget.py`:
+
+```python
+"""T13 — aggregate wall-clock budget assertion for the Stage 2B E2E suite.
+
+Per scope-report §16.4: full E2E suite ≤ 12 min on CI runner.
+
+Reads the per-test elapsed-time bucket populated by the `wall_clock_record`
+fixture in conftest.py. Hard-fails when O2_SCALPEL_E2E_BUDGET_ASSERT=1.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
+
+import pytest
+
+if TYPE_CHECKING:
+    pass
+
+
+WALL_CLOCK_BUDGET_SECONDS = 720.0  # 12 min cap (scope-report §16.4)
+PER_SCENARIO_SOFT_BUDGET = {
+    "test_e1_rust_4way_split_byte_identical": 240.0,
+    "test_e1_py_4way_split_byte_identical": 120.0,
+    "test_e9_rust_semantic_equivalence": 240.0,
+    "test_e9_py_semantic_equivalence": 180.0,
+    "test_e2_extract_dry_run_matches_commit": 60.0,
+    "test_e3_rollback_restores_python_tree": 60.0,
+    "test_e3_rollback_restores_rust_tree": 240.0,
+    "test_e10_rust_rename_across_modules": 180.0,
+    "test_e10_py_rename_preserves_dunder_all": 60.0,
+    "test_e13_py_organize_imports_single_action": 60.0,
+    "test_e11_split_to_outside_workspace_path_rejected": 30.0,
+    "test_e12_transaction_commit_then_rollback_round_trip": 120.0,
+    "test_e12_inline_round_trip_with_checkpoint_replay": 120.0,
+}
+
+
+@pytest.mark.e2e
+def test_zzz_wall_clock_budget(request) -> None:
+    bucket = request.session.stash.get("_e2e_wall_clock", default=[])
+    if not bucket:
+        pytest.skip("no wall_clock_record entries collected; nothing to budget")
+
+    # Always print the per-test breakdown for forensics.
+    total = sum(seconds for _, seconds in bucket)
+    print("\n--- Stage 2B wall-clock breakdown ---")
+    for name, seconds in sorted(bucket, key=lambda kv: -kv[1]):
+        soft = PER_SCENARIO_SOFT_BUDGET.get(name)
+        marker = ""
+        if soft is not None and seconds > soft:
+            marker = f" SOFT-OVERRUN (soft={soft:.0f}s)"
+        print(f"  {seconds:7.2f}s  {name}{marker}")
+    print(f"--- TOTAL: {total:.2f}s (cap={WALL_CLOCK_BUDGET_SECONDS:.0f}s) ---")
+
+    if os.environ.get("O2_SCALPEL_E2E_BUDGET_ASSERT") != "1":
+        pytest.skip(
+            "budget assertion gated; set O2_SCALPEL_E2E_BUDGET_ASSERT=1 on CI"
+        )
+
+    assert total <= WALL_CLOCK_BUDGET_SECONDS, (
+        f"Stage 2B E2E aggregate wall-clock {total:.2f}s exceeds the "
+        f"{WALL_CLOCK_BUDGET_SECONDS:.0f}s cap (scope-report §16.4). "
+        f"Investigate per-test breakdown above; consider parallelizing "
+        f"scenarios or pre-warming the LSP pool before the suite."
+    )
+```
+
+- [ ] **Step 2: Run the full suite (with assert gated off — print budget only)**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" \
+  .venv/bin/pytest test/e2e/ -v -m e2e --tb=short -s
+```
+
+Expected: every scenario PASSES (T2..T12 + harness smoke). The budget test SKIPs with reason `"budget assertion gated; set O2_SCALPEL_E2E_BUDGET_ASSERT=1 on CI"` but prints the breakdown. Total should be in the 4–8 min range per scope-report §16.4.
+
+- [ ] **Step 3: Run with the assert turned on (CI-grade run)**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 O2_SCALPEL_E2E_BUDGET_ASSERT=1 \
+  PATH="$(pwd)/.venv/bin:$PATH" \
+  .venv/bin/pytest test/e2e/ -v -m e2e --tb=short -s 2>&1 | tail -30
+```
+
+Expected: full suite PASSES; budget test asserts `total ≤ 720.0`. If it fails, the breakdown shows which scenario(s) blew their soft budget — investigate first before raising the cap.
+
+- [ ] **Step 4: Commit T13**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_wall_clock_budget.py
+git commit -m "test(stage-2b): T13 — wall-clock budget assertion (≤ 12 min CI cap)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T13 — bump submodule (wall-clock budget)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T13 row to `OUTCOME=DONE`.
+
+---
+
+### Task 14: Submodule ff-merge + parent merge + MVP-cut tag (Stage 2B close-out → MVP cut)
+
+**Scope:** ff-merge the submodule feature branch to `vendor/serena/main`, bump the parent submodule pointer, merge the parent feature branch to `develop`, then to `main`, and tag the resulting commit as the MVP cut. Per [scope-report §15 success criteria](../../design/mvp/2026-04-24-mvp-scope-report.md#15-mvp-test-gates) and [§14.2 exit gate](../../design/mvp/2026-04-24-mvp-scope-report.md#142-stage-2-medium--top-decile-ergonomic-facades), Stage 2B is the **MVP cut** — when this task exits green, the v0.1.0-MVP release tag lands.
+
+- [ ] **Step 1: Verify the full E2E suite is green with assertions on**
+
+Run from `vendor/serena/`:
+```bash
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/ -v 2>&1 | tail -3
+O2_SCALPEL_RUN_E2E=1 O2_SCALPEL_E2E_BUDGET_ASSERT=1 \
+  PATH="$(pwd)/.venv/bin:$PATH" \
+  .venv/bin/pytest test/e2e/ -v -m e2e --tb=short 2>&1 | tail -10
+```
+
+Expected:
+- Spike suite: same green-count as PROGRESS T0 baseline (no regressions).
+- E2E suite: every scenario PASSES; budget test PASSES with `total ≤ 720.0`.
+
+If anything is red, abort the close-out and fix before re-running.
+
+- [ ] **Step 2: ff-merge submodule feature → main**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git checkout main
+git merge --ff-only feature/stage-2b-e2e-harness-scenarios
+git rev-parse HEAD  # capture as MVP-cut submodule SHA
+git push origin main
+```
+
+Expected: `Fast-forward` line in the output. If `non-fast-forward`, somebody pushed to `main` mid-flight — investigate before forcing.
+
+- [ ] **Step 3: Tag the submodule MVP cut**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git tag -a stage-2b-e2e-harness-complete -m "Stage 2B complete — 9 MVP E2E scenarios + Q3/Q4 fixtures green; MVP cut"
+git push origin stage-2b-e2e-harness-complete
+```
+
+- [ ] **Step 4: Bump parent submodule pointer**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git checkout feature/stage-2b-e2e-harness-scenarios
+git add vendor/serena
+git commit -m "chore(submodule): bump vendor/serena to Stage 2B exit (MVP cut)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+- [ ] **Step 5: Merge parent feature → develop**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git checkout develop
+git merge --no-ff feature/stage-2b-e2e-harness-scenarios -m "Merge feature/stage-2b-e2e-harness-scenarios into develop
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git push origin develop
+```
+
+- [ ] **Step 6: Merge develop → main and tag MVP cut**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git checkout main
+git merge --no-ff develop -m "Merge develop into main — MVP cut
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git tag -a v0.1.0-mvp -m "o2.scalpel v0.1.0 — MVP cut
+
+Stages 1A–1J + 2A + 2B complete:
+- 13 always-on MCP tools (Stage 1G + 2A)
+- 5 ergonomic facades + scalpel_transaction_commit (Stage 2A)
+- 9 MVP E2E scenarios green (E1, E1-py, E2, E3, E9, E9-py, E10, E11, E12)
+- Q3 catalog-gate blind-spot fixtures green
+- Q4 workspace-boundary integration tests green
+- pytest -m e2e completes within 12 min wall-clock cap on CI
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git push origin main
+git push origin v0.1.0-mvp
+```
+
+- [ ] **Step 7: Close out PROGRESS ledger and link MVP report**
+
+Update `docs/superpowers/plans/stage-2b-results/PROGRESS.md`:
+- Set every row's `OUTCOME=DONE`.
+- Append a final section:
+
+```markdown
+## MVP cut
+
+- Tag: `v0.1.0-mvp`
+- Submodule tag: `stage-2b-e2e-harness-complete`
+- Date: <YYYY-MM-DD of step 6>
+- E2E pass-count: 13 scenario tests + 4 harness-smoke + 2 Q3 + 3 Q4 + 1 budget = 23 PASSED.
+- Aggregate wall-clock: <total seconds from T13 breakdown>s.
+- Spike suite green-count: <same as T0 baseline>.
+
+Per scope-report §15:
+- ✅ Coverage: capability catalog round-trip green (Stage 1F drift gate).
+- ✅ Reachability: long-tail dispatcher exercised in Stage 1G T4 + every facade test.
+- ✅ Ergonomics: 5 ergonomic facades green on dedicated E2E scenarios.
+- ✅ Safety: single-checkpoint + transaction rollback both green (E3 + E12).
+- ✅ Distribution: `uvx --from <local-path>` smoke wired in Stage 1I.
+- ✅ Resource floor: aggregate scalpel RSS asserted < 8 GB on calcrs+calcpy in Stage 1G workspace_health test.
+```
+
+Commit the ledger close-out:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): close ledger — MVP cut at v0.1.0-mvp
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git push origin main develop
+```
+
+- [ ] **Step 8: Announce MVP cut**
+
+Per `CLAUDE.md` "Releases" rule, the MVP cut is a tagged release. Add a one-liner to the project root `README.md` if it does not yet point to the v0.1.0-mvp release notes:
+
+```markdown
+## Releases
+
+- **v0.1.0-mvp** (Stage 2B exit) — full LSP-coverage MCP write surface for Rust + Python; 13 always-on tools + 11 deferred specialty tools; 9 E2E scenarios green.
+```
+
+Commit:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add README.md
+git commit -m "docs(release): announce v0.1.0-mvp
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git push origin main
+```
+
+---
+
+## Self-review checklist (run BEFORE marking the plan DONE)
+
+- [ ] All 9 MVP E2E scenarios have a dedicated task or sub-task with full test code:
+  - E1 → T2 (`test_e2e_e1_split_file_rust.py`)
+  - E1-py → T3 (`test_e2e_e1_py_split_file_python.py`)
+  - E2 → T4 (`test_e2e_e2_dry_run_commit.py`)
+  - E3 → T5 (`test_e2e_e3_rollback.py`)
+  - E9 → T6 sub-test `test_e9_rust_semantic_equivalence`
+  - E9-py → T6 sub-test `test_e9_py_semantic_equivalence`
+  - E10 → T7 sub-test `test_e10_rust_rename_across_modules`
+  - E10-py → T7 sub-test `test_e10_py_rename_preserves_dunder_all`
+  - E11 → T8 (`test_e2e_e11_workspace_boundary.py`)
+  - E12 → T9 (`test_e2e_e12_transaction_commit_rollback.py`)
+  - E13-py → T7 sub-test `test_e13_py_organize_imports_single_action`
+- [ ] Q3 catalog-gate fixtures present (T11) — both `action_title_stability` and `diagnostic_count_calcpy`.
+- [ ] Q4 workspace-boundary integration tests present (T12) — three sub-tests (`registry-reject`, `shadow-warn`, `EXTRA_PATHS`).
+- [ ] Wall-clock budget assertion present (T13) — aggregate ≤ 720 s gated by `O2_SCALPEL_E2E_BUDGET_ASSERT=1`.
+- [ ] No placeholders / TODO / "similar to" anywhere in the plan body.
+- [ ] Each E2E test is self-contained (boots LSPs via the harness fixture, drives facades via `_McpDriver`, asserts post-state).
+- [ ] Commit author trailer is `AI Hive(R) <noreply@o2.services>` on every commit; never "Claude".
+- [ ] Test file paths use absolute references (`/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/e2e/...`).
+- [ ] Stage 2A facade signatures consumed in tests match the canonical signatures listed in the plan header (split / extract / inline / rename / imports_organize / transaction_commit).
+- [ ] Stage 1G primitive signatures consumed match (`dry_run_compose(steps) -> str` returning `transaction_id`, `rollback(checkpoint_id) -> str`, `transaction_rollback(transaction_id) -> str`, `workspace_health() -> str`, `capabilities_list(language) -> str`).
