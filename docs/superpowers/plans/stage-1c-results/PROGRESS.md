@@ -13,7 +13,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 | T3  | Idle-shutdown reaper (O2_SCALPEL_LSP_IDLE_SHUTDOWN_SECONDS)            | b277d67e | OK | — |
 | T4  | pool_pre_ping (workspace/symbol echo + spawn replacement)              | 6136a4b2 | OK | — |
 | T5  | RAM-budget guard (psutil-or-fallback; WaitingForLspBudget)             | 09be2d2f | OK | — |
-| T6  | discovery.py + O2_SCALPEL_DISABLE_LANGS filter                         | _pending_ | _pending_ | — |
+| T6  | discovery.py + O2_SCALPEL_DISABLE_LANGS filter                         | 3c3e9e53 | OK | — |
 | T7  | Pool ↔ TransactionStore acquire-affinity                               | _pending_ | _pending_ | — |
 | T8  | Telemetry (.serena/pool-events.jsonl)                                  | _pending_ | _pending_ | — |
 | T9  | End-to-end: 4 MVP LSPs + crash-replace + idle-reap under §16 ceiling   | _pending_ | _pending_ | — |
