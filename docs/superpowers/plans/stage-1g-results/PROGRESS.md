@@ -8,7 +8,7 @@ Parent branch: `feature/stage-1g-primitive-tools`
 |---|---|---|---|---|
 | T0 | Bootstrap branches + ledger + verify imports        | 9bf43bd6 | OK — submodule branch open, Stage 1F exports verified | — |
 | T1 | scalpel_schemas.py — pydantic v2 IO schemas         | 1313ecf0 | OK — 9/9 green | — |
-| T2 | scalpel_runtime.py — ScalpelRuntime singleton       | _pending_ | _pending_ | — |
+| T2 | scalpel_runtime.py — ScalpelRuntime singleton       | 75be9fa2 | OK — 7/7 green | LanguageStrategy ctor takes pool: LspPool (plan deviation; documented in commit) |
 | T3 | ScalpelCapabilitiesListTool + CapabilityDescribeTool| _pending_ | _pending_ | — |
 | T4 | ScalpelApplyCapabilityTool                          | _pending_ | _pending_ | — |
 | T5 | ScalpelDryRunComposeTool                            | _pending_ | _pending_ | — |
