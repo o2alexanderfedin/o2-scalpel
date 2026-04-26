@@ -11,7 +11,7 @@ Built on: stage-1e-python-strategies-complete
 | T1 | capabilities.py — CapabilityRecord + CapabilityCatalog    | c46a2248 | GREEN (7/7) | — |
 | T2 | capabilities.py — build_capability_catalog() factory      | 95771600 | GREEN (15/15) | — |
 | T3 | capabilities.py — _introspect_adapter_kinds()             | 09bb7a27 | GREEN (21/21) | — |
-| T4 | golden-file baseline + --update-catalog-baseline plumbing | _pending_ | _pending_ | — |
+| T4 | golden-file baseline + --update-catalog-baseline plumbing | df9e4437 | GREEN (27/27 PASS, 1 SKIP) | — |
 | T5 | drift gate test (test_stage_1f_t5_catalog_drift.py)       | _pending_ | _pending_ | — |
 | T6 | __init__.py registry + smoke + ledger close + ff-merge    | _pending_ | _pending_ | — |
 
