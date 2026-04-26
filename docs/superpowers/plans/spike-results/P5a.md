@@ -6,11 +6,11 @@
 
 - Total internal apply-equivalent steps: 12
 - pylsp-mypy plugin loaded (mypy-sourced diagnostic observed): True
-- Stale steps (oracle != pylsp-mypy): 0
-- Stale rate: 0.00%
-- Latencies (s, all 12): [4.3405, 2.2008, 1.4543, 1.6124, 1.4595, 1.5598, 1.5998, 1.3898, 1.5068, 1.4921, 1.4404, 1.6065]
-- p95 latency (s): 4.340
-- (oracle_errors, pylsp_errors) pairs: [(1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (2, 2), (1, 1), (2, 2), (1, 1), (1, 1), (1, 1), (1, 1)]
+- Stale steps (oracle != pylsp-mypy): 1
+- Stale rate: 8.33%
+- Latencies (s, all 12): [8.0111, 4.8069, 4.2004, 4.1141, 4.6535, 4.4818, 4.6312, 4.9415, 4.5705, 4.6438, 4.1352, 4.7025]
+- p95 latency (s): 8.011
+- (oracle_errors, pylsp_errors) pairs: [(2, 0), (2, 2), (2, 2), (2, 2), (2, 2), (3, 3), (2, 2), (3, 3), (2, 2), (2, 2), (2, 2), (2, 2)]
 - dmypy oracle failures: []
 
 **Configuration (per Q1 resolution):**
