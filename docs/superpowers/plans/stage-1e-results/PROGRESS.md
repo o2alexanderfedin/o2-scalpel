@@ -7,7 +7,7 @@ Built on: stage-1d-multi-server-merge-complete
 
 | Task | Description | Branch SHA (submodule) | Outcome | Follow-up |
 |---|---|---|---|---|
-| T0 | Bootstrap branches + ledger + dep pins                             | _pending_ | _pending_ | — |
+| T0 | Bootstrap branches + ledger + dep pins                             | `86854789` | DONE      | — |
 | T1 | language_strategy.py Protocol + Rust/Python mixins                 | _pending_ | _pending_ | — |
 | T2 | rust_strategy.py skeleton (assist-family + ext allow-list)         | _pending_ | _pending_ | — |
 | T3 | pylsp_server.py adapter (spawn/init/facade conformance)            | _pending_ | _pending_ | — |
@@ -30,7 +30,8 @@ Built on: stage-1d-multi-server-merge-complete
 ## Stage 1D entry baseline
 
 - Submodule `main` head at Stage 1E start: `3ae27952d9f25eedf128f1cc52e69c752e236237`
-- Parent branch head at Stage 1E start: (filled in at T0 commit)
+- Parent branch head at Stage 1E start: `ddb1a5d`
+- Parent execution branch: `feature/stage-1e-python-strategies` (opened via git-flow at T0)
 - Stage 1D tag: `stage-1d-multi-server-merge-complete`
 - Stage 1D suite green: 303/303 (per memory note `project_stage_1d_complete`)
 
