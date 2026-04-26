@@ -9,7 +9,7 @@ Built on: stage-1b-applier-checkpoints-transactions-complete
 |---|---|---|---|---|
 | T0  | Bootstrap progress ledger + `_FakeServer` fixture                      | `d897516e` | OK | — |
 | T1  | §11.6 multi-server schemas (pydantic v2 BaseModels)                    | `9006546b` | OK | — |
-| T2  | `broadcast()` parallel fan-out (asyncio.gather + wait_for)             | _pending_ | _pending_ | — |
+| T2  | `broadcast()` parallel fan-out (asyncio.gather + wait_for)             | `8452c810` | OK | — |
 | T3  | `_normalize_kind()` — P2 sub-kind collapse                             | _pending_ | _pending_ | — |
 | T4  | `_apply_priority()` — §11.1 priority table                             | _pending_ | _pending_ | — |
 | T5  | `_dedup()` — title + WorkspaceEdit structural equality                 | _pending_ | _pending_ | — |
