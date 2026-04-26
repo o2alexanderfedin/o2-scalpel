@@ -6,7 +6,7 @@ Parent branch: `feature/stage-1g-primitive-tools`
 
 | Task | Title | Submodule SHA | Outcome | Follow-ups |
 |---|---|---|---|---|
-| T0 | Bootstrap branches + ledger + verify imports        | _pending_ | _pending_ | — |
+| T0 | Bootstrap branches + ledger + verify imports        | 9bf43bd6 | OK — submodule branch open, Stage 1F exports verified | — |
 | T1 | scalpel_schemas.py — pydantic v2 IO schemas         | _pending_ | _pending_ | — |
 | T2 | scalpel_runtime.py — ScalpelRuntime singleton       | _pending_ | _pending_ | — |
 | T3 | ScalpelCapabilitiesListTool + CapabilityDescribeTool| _pending_ | _pending_ | — |
