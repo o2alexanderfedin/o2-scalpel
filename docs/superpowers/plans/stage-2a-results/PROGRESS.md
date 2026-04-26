@@ -8,7 +8,7 @@
 | T3 | 69cc6f82a04ec7040856cb41f2bba3cc39a1474b | DONE | scalpel_split_file |
 | T4 | 5b0a13c5f41a17534384424011fc3e9d08a9e354 | DONE | scalpel_extract |
 | T5 | 63fa5e79055b2b6c32946a98c5ce91f9771f6411 | DONE | scalpel_inline |
-| T6 | | | |
+| T6 | 1c45917797eb696fc8ab7cc98c3efd120e35db5c | DONE | scalpel_rename + text-search fallback |
 | T7 | | | |
 | T8 | | | |
 | T9 | | | |
