@@ -16,7 +16,18 @@ Built on: stage-1d-multi-server-merge-complete
 | T6 | ruff_server.py adapter                                             | `08e37bfe` | DONE      | Same T3/T5 deviations re-applied. Boot+codeAction GREEN — ruff offered source.organizeImports. Test fixed to pass absolute path to `request_code_actions` (it calls `Path(file).as_uri()`). Cross-check (all 3 Python adapters import together) GREEN. |
 | T7 | python_strategy.py — MultiServerCoordinator wiring (no mypy)       | `626387aa` | DONE      | 6/6 green. _SERVER_LANGUAGE_TAG mapping forces pool dedup keys to be distinct per LSP role. Q1-cascade regression-guard test passes (no didSave-injection method names leak). |
 | T8 | python_strategy.py — 14-step interpreter + Rope library bridge     | `eb3b7bf3` | DONE      | rope 1.14.0 API drift: `MoveModule.get_changes(dest)` takes only dest folder (no `new_name` kwarg) — bridge dispatches Rename for same-dir, MoveModule for cross-dir; `rope.base.change` has no `RenameResource` (collapsed into `MoveResource` with `new_resource` field). 17 T8 tests + 6 T7 regression all green. |
-| T9 | __init__.py registry + smoke + ledger close + ff-merge + tag       | _pending_ | _pending_ | — |
+| T9 | __init__.py registry + smoke + ledger close + ff-merge + tag       | `e188af6d` | DONE      | 5/5 registry+smoke green; full spike-suite 356/356 (Stage 1D 303 + Stage 1E 53 new); submodule ff-merged to main + tagged `stage-1e-python-strategies-complete`. |
+
+## Stage 1E exit summary
+
+- **Submodule HEAD (`main`):** `e188af6d8e4eafbaee87548be59764d2ee028463`
+- **Submodule tag:** `stage-1e-python-strategies-complete`
+- **Stage 1E test count:** 53 (T1: 5, T2: 6, T3: 4, T4: 1, T5: 5, T6: 4, T7: 6, T8 interp: 14, T8 rope: 3, T9: 5)
+- **Full spike-suite:** 356/356 green (Phase 0 + Stage 1A + 1B + 1C + 1D + 1E)
+- **Production LoC delta (per `git diff --stat 3ae27952..e188af6d`):** ~1,238 LoC across 8 production files (4 strategies/init + 3 adapters + pyproject pin) + 940 LoC tests across 9 test files. Within 1,425 budget.
+- **Stage 1D T11 deferred concern:** CLOSED. T4 regression test drives real pylsp-rope inline and asserts non-empty `workspace/applyEdit` drain.
+- **Items routed to Stage 1F:** 3 remaining Rope-bridge ops (`IntroduceFactory`, `EncapsulateField`, `Restructure`); 8 Python facades (`extract_function`, `extract_variable`, `extract_method`, `inline`, `convert_to_method_object`, `local_to_field`, `introduce_parameter`, `organize_imports`); `auto_import` two-step `addImport` flow.
+- **Items routed to v0.2.0:** PEP 723 + direnv interpreter discovery steps (chain stays at 14 instead of 16).
 
 ## Decisions log
 
