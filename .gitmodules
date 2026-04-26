@@ -1,6 +1,6 @@
 [submodule "vendor/serena"]
 	path = vendor/serena
-	url = https://github.com/o2alexanderfedin/serena.git
+	url = https://github.com/o2alexanderfedin/o2-scalpel-engine.git
 	branch = main
 	ignore = dirty
 [submodule "vendor/claude-code-lsps-boostvolt"]
