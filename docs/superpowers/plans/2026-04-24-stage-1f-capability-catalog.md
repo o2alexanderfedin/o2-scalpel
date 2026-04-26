@@ -652,4 +652,248 @@ EOF
 
 ---
 
+### Task 2: `capabilities.py` — `build_capability_catalog()` strategy walk
+
+**Files:**
+- Modify: `vendor/serena/src/serena/refactoring/capabilities.py` (replace stub `build_capability_catalog` body).
+- Create: `vendor/serena/test/spikes/test_stage_1f_t2_build_catalog.py`.
+
+- [ ] **Step 1: Write failing test — factory walks STRATEGY_REGISTRY**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1f_t2_build_catalog.py`:
+
+```python
+"""T2 — build_capability_catalog factory walks STRATEGY_REGISTRY."""
+
+from __future__ import annotations
+
+import pytest
+
+
+def test_factory_with_real_registry_returns_nonempty_catalog() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    assert len(cat.records) > 0
+
+
+def test_factory_emits_one_record_per_strategy_kind_pair() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY, PythonStrategy, RustStrategy
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+
+    # Stage 1E declared 7 Python kinds + 6 Rust kinds. T2 emits one record
+    # per (language, kind) pair using the strategy whitelist as the source
+    # (T3 will enrich with adapter-advertised kinds, but T2's contract is
+    # strategy-driven only).
+    py_records = [r for r in cat.records if r.language == "python"]
+    rs_records = [r for r in cat.records if r.language == "rust"]
+    assert len(py_records) == len(PythonStrategy.code_action_allow_list)
+    assert len(rs_records) == len(RustStrategy.code_action_allow_list)
+
+
+def test_factory_python_records_carry_python_extensions() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    py_records = [r for r in cat.records if r.language == "python"]
+    for rec in py_records:
+        assert rec.extension_allow_list == frozenset({".py", ".pyi"})
+
+
+def test_factory_rust_records_carry_rust_extensions() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    rs_records = [r for r in cat.records if r.language == "rust"]
+    for rec in rs_records:
+        assert rec.extension_allow_list == frozenset({".rs"})
+
+
+def test_factory_record_id_format_is_dotted_lang_kind() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    for rec in cat.records:
+        assert rec.id == f"{rec.language}.{rec.kind}", rec
+
+
+def test_factory_records_are_sorted() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    keys = [(r.language, r.source_server, r.kind, r.id) for r in cat.records]
+    assert keys == sorted(keys)
+
+
+def test_factory_empty_registry_returns_empty_catalog() -> None:
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog({})
+    assert len(cat.records) == 0
+
+
+def test_factory_python_source_server_is_pylsp_rope_default() -> None:
+    """T2 contract: strategy-only walk attributes Python kinds to pylsp-rope.
+
+    T3 will add per-adapter attribution (basedpyright kinds → basedpyright,
+    ruff kinds → ruff). T2's job is the strategy-only baseline so the
+    delta T3 introduces is reviewable as an isolated commit.
+    """
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    for rec in cat.records:
+        if rec.language == "python":
+            assert rec.source_server == "pylsp-rope"
+        elif rec.language == "rust":
+            assert rec.source_server == "rust-analyzer"
+        else:
+            pytest.fail(f"unexpected language: {rec.language}")
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1f_t2_build_catalog.py -v
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Expected: 6 of 7 fail (`empty_registry` passes against the T1 stub). The failure messages mention `len(cat.records) == 0` instead of the expected non-zero counts.
+
+- [ ] **Step 3: Replace the stub `build_capability_catalog` in `capabilities.py`**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/refactoring/capabilities.py`. Replace the T1 stub body of `build_capability_catalog` (and the `from typing import Any, Mapping` import — extend it) with:
+
+```python
+from typing import Any, Mapping, get_args
+
+from .multi_server import ProvenanceLiteral
+
+# Default per-language source_server attribution for the T2 strategy-only
+# walk. T3 enriches this by reading the adapter codeActionKind valueSet
+# to attribute kinds that ruff or basedpyright also advertise.
+_DEFAULT_SOURCE_SERVER_BY_LANGUAGE: dict[str, ProvenanceLiteral] = {
+    "python": "pylsp-rope",
+    "rust": "rust-analyzer",
+}
+
+
+def build_capability_catalog(
+    strategy_registry: Mapping[Any, type] | None = None,
+    *,
+    project_root: Any = None,
+) -> CapabilityCatalog:
+    """Walk ``STRATEGY_REGISTRY`` and emit one ``CapabilityRecord`` per
+    ``(strategy.language_id, kind)`` pair.
+
+    T2 contract — strategy-only:
+      - source_server is taken from ``_DEFAULT_SOURCE_SERVER_BY_LANGUAGE``
+        keyed by ``strategy.language_id``.
+      - extension_allow_list is taken from ``strategy.extension_allow_list``.
+      - kind is each entry of ``strategy.code_action_allow_list``.
+      - id is ``f"{language}.{kind}"``.
+
+    T3 will overlay adapter-advertised kinds and re-attribute the
+    source_server when an adapter specifically advertises a kind.
+
+    :param strategy_registry: ``{Language: StrategyClass}`` from Stage 1E.
+        ``None`` is treated as an empty mapping (catalog has zero records).
+    :param project_root: reserved for T8 of Stage 1G when per-project
+        capability gating lands; ignored at MVP.
+    """
+    if strategy_registry is None:
+        return CapabilityCatalog(records=())
+
+    legal_servers = set(get_args(ProvenanceLiteral))
+    records: list[CapabilityRecord] = []
+    for _language_enum, strategy_cls in strategy_registry.items():
+        language_id = strategy_cls.language_id
+        source_server = _DEFAULT_SOURCE_SERVER_BY_LANGUAGE.get(language_id)
+        if source_server is None or source_server not in legal_servers:
+            raise ValueError(
+                f"capability catalog: no default source_server registered "
+                f"for language_id={language_id!r}; add it to "
+                f"_DEFAULT_SOURCE_SERVER_BY_LANGUAGE"
+            )
+        for kind in strategy_cls.code_action_allow_list:
+            records.append(
+                CapabilityRecord(
+                    id=f"{language_id}.{kind}",
+                    language=language_id,
+                    kind=kind,
+                    source_server=source_server,
+                    params_schema={},
+                    preferred_facade=None,
+                    extension_allow_list=strategy_cls.extension_allow_list,
+                )
+            )
+    return CapabilityCatalog(records=tuple(records))
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1f_t2_build_catalog.py -v
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Expected: 8/8 green. Re-run the T1 suite too — it MUST stay green:
+```bash
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest \
+  test/spikes/test_stage_1f_t1_capability_record_schema.py \
+  test/spikes/test_stage_1f_t2_build_catalog.py -v
+```
+
+Expected: 7 + 8 = 15 green.
+
+- [ ] **Step 5: Commit T2**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/refactoring/capabilities.py test/spikes/test_stage_1f_t2_build_catalog.py
+git commit -m "$(cat <<'EOF'
+stage-1f(t2): build_capability_catalog strategy walk
+
+- Walks STRATEGY_REGISTRY (Stage 1E export).
+- Emits one record per (strategy.language_id, kind) pair using
+  strategy.code_action_allow_list as the kind source.
+- source_server defaults to pylsp-rope for python / rust-analyzer for
+  rust; T3 will enrich with per-adapter attribution.
+- Records inherit strategy.extension_allow_list verbatim.
+- id = f"{language}.{kind}" (dotted form per §12.1 CapabilityDescriptor).
+
+Tests: 8/8 (T2) + 7/7 (T1) = 15/15 green.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T2
+```
+
+Then update parent ledger (separate commit):
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+# Edit PROGRESS.md row T2: paste SHA + outcome=GREEN
+git add docs/superpowers/plans/stage-1f-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1f(t2): ledger update — strategy walk landed, 15/15 green
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+---
+
+
 
