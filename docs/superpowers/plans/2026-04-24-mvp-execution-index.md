@@ -23,17 +23,18 @@ Sub-plans are executed in dependency order. Phase 0 must complete before Stage 1
 | **Phase 0** | [`2026-04-24-phase-0-pre-mvp-spikes.md`](2026-04-24-phase-0-pre-mvp-spikes.md) | 12 spikes (5 blocking, 7 non-blocking) — bootstrap repo skeleton, seed `calcrs` + `calcpy` minimal fixtures, run each spike, record findings | **Plan ready** |
 | **Stage 1A** | [`2026-04-24-stage-1a-lsp-primitives.md`](2026-04-24-stage-1a-lsp-primitives.md) | LSP primitive layer in `solidlsp` — codeAction/resolve/executeCommand facades, multi-callback `$/progress` tap, `applyEdit` reverse-request handler with WorkspaceEdit capture (per P1), reverse-request auto-responders, `wait_for_indexing()`, `override_initialize_params()` hook, `is_in_workspace()` filter. Files 1–3 of §14.1 (~550 LoC). **File 4 (`python_lsp.py` adapters) moved to Stage 1E** per SUMMARY §5 — adapters live with their strategy. | **Plan ready** |
 | **Stage 1B** | [`2026-04-24-stage-1b-applier-checkpoints-transactions.md`](2026-04-24-stage-1b-applier-checkpoints-transactions.md) | `WorkspaceEdit` applier upgrade with full shape × options matrix; checkpoint/rollback machinery; transaction store. Files 5–7 of §14.1, ~830 LoC + ~60-80 unit tests. Consumes Stage 1A's `is_in_workspace` filter for boundary enforcement (Q4 §7.1). | **Plan ready** |
-| **Stage 1C** | `2026-04-24-stage-1c-lsp-pool-discovery.md` (TBD) | Per-(language, project_root) LSP pool, sibling-plugin discovery, lazy spawn, idle shutdown, `pool_pre_ping` health probe. Files 8–9 of §14.1, ~290 LoC | **Plan TBD** |
-| **Stage 1D** | `2026-04-24-stage-1d-multi-server-merge.md` (TBD) | Python multi-LSP coordinator, two-stage priority + dedup-by-equivalence merge, provenance reporting, conflict accounting. File 10 of §14.1, ~430 LoC + multi-server unit tests | **Plan TBD** |
-| **Stage 1E** | `2026-04-24-stage-1e-language-strategies.md` (TBD) | `LanguageStrategy` Protocol + `RustStrategyExtensions` + `PythonStrategyExtensions` mixins; `RustStrategy` skeleton with assist-family declarations + extension whitelist; `PythonStrategy` skeleton with multi-server orchestration + 14-step interpreter discovery + Rope library bridge. **Plus `PylspServer`/`BasedpyrightServer`/`RuffServer` adapters in `solidlsp/language_servers/` (~150 LoC, migrated from Stage 1A File 4 per SUMMARY §5).** Files 11–14 of §14.1 + adapters, ~1,425 LoC | **Plan TBD** |
+| **Stage 1C** | [`2026-04-24-stage-1c-lsp-pool-discovery.md`](2026-04-24-stage-1c-lsp-pool-discovery.md) | Per-(language, project_root) LSP pool, sibling-plugin discovery, lazy spawn, idle shutdown, `pool_pre_ping` health probe, RAM-budget guard, transaction acquire-affinity, telemetry. Files 8–9 of §14.1, ~290 LoC. | **DONE** (tag `stage-1c-lsp-pool-discovery-complete`) |
+| **Stage 1D** | [`2026-04-24-stage-1d-multi-server-merge.md`](2026-04-24-stage-1d-multi-server-merge.md) | Python multi-LSP coordinator, two-stage priority + dedup-by-equivalence merge, §11.7 four invariants, rename merger with P6 reconciliation, edit-attribution log. File 10 of §14.1, ~430 LoC + multi-server unit tests. | **DONE** (tag `stage-1d-multi-server-merge-complete`) |
+| **Stage 1E** | `2026-04-25-stage-1e-python-strategies.md` (TBD) | `LanguageStrategy` Protocol + `RustStrategyExtensions` + `PythonStrategyExtensions` mixins; `RustStrategy` skeleton with assist-family declarations + extension whitelist; `PythonStrategy` skeleton with multi-server orchestration + 14-step interpreter discovery + Rope library bridge. **Plus `PylspServer`/`BasedpyrightServer`/`RuffServer` adapters in `solidlsp/language_servers/` (~150 LoC, migrated from Stage 1A File 4 per SUMMARY §5).** Files 11–14 of §14.1 + adapters, ~1,425 LoC | **Plan TBD** (auto-draft scheduled 2026-05-09 via `trig_01NppnxDr4UZzzZgJz7gsYMF`) |
 | **Stage 1F** | `2026-04-24-stage-1f-capability-catalog.md` (TBD) | Capability catalog assembly + drift CI assertion + golden-file checked-in baseline. File 15 of §14.1, ~200 LoC + drift fixtures | **Plan TBD** |
 | **Stage 1G** | `2026-04-24-stage-1g-primitive-tools.md` (TBD) | All 8 primitive/safety/diagnostics MCP tools (`scalpel_capabilities_list`, `scalpel_capability_describe`, `scalpel_apply_capability`, `scalpel_dry_run_compose`, `scalpel_rollback`, `scalpel_transaction_rollback`, `scalpel_workspace_health`, `scalpel_execute_command`). File 16 of §14.1, ~600 LoC | **Plan TBD** |
+| **Stage 1J** | `2026-04-25-stage-1j-plugin-skill-generator.md` (TBD) | **Pulled from v1.1 to MVP cut on 2026-04-25.** `o2-scalpel-newplugin` generator — introspects `LanguageStrategy` (1E) + capability catalog (1F) + primitive tools (1G); emits BOTH plugins (`.claude-plugin/plugin.json` + `.mcp.json` + hooks + README in boostvolt marketplace shape) AND skills (markdown + YAML frontmatter for LLM workflow guidance). CLI: `o2-scalpel-newplugin --language <lang> --out <dir>`. ~600–900 LoC + golden-file snapshot tests. | **Plan TBD** (auto-drafting in background) |
 | **Stage 1H** | `2026-04-24-stage-1h-fixtures-integration-tests.md` (TBD) | Full `calcrs` + 18 RA companions; full `calcpy` + 4 sub-fixtures; 31 per-assist-family integration test modules (~70 sub-tests). Files 17 + 19 of §14.1, ~5,240 fixture LoC + ~2,800 test LoC | **Plan TBD** |
-| **Stage 1I** | `2026-04-24-stage-1i-plugin-package.md` (TBD) | `o2-scalpel/.claude-plugin/plugin.json` + `.mcp.json`, `uvx --from <local-path>` smoke wiring, `verify-scalpel.sh` SessionStart hook. File 20 of §14.1, ~35 LoC + smoke test | **Plan TBD** |
+| **Stage 1I** | `2026-04-24-stage-1i-plugin-package.md` (TBD) | **Refactored 2026-04-25**: drops hand-written `o2-scalpel/.claude-plugin/plugin.json`; instead runs `o2-scalpel-newplugin --language rust --out o2-scalpel-rust/` + `--language python --out o2-scalpel-python/`; commits generated trees; keeps `verify-scalpel.sh` SessionStart hook + `uvx --from <local-path>` smoke wiring. File 20 of §14.1 replaced by generator output. | **Plan TBD** (refactored scope) |
 | **Stage 2A** | `2026-04-24-stage-2a-ergonomic-facades.md` (TBD) | 5 ergonomic intent facades + 13th always-on `scalpel_transaction_commit` (per [Q2 resolution](../../design/mvp/open-questions/q2-12-vs-13-tools.md)) + Q1 per-step synthetic `didSave` injection + Q4 workspace-boundary path filter + their per-facade integration tests. Items 21–25c of §14.2, ~1,725 logic LoC | **Plan TBD** |
 | **Stage 2B** | `2026-04-24-stage-2b-e2e-harness-scenarios.md` (TBD) | E2E harness (`test/e2e/conftest.py`, four-LSP wiring) + 9 MVP E2E scenarios + Q3 catalog-gate-blind-spot fixtures + Q4 workspace-boundary integration tests. Items 26–27b of §14.2, ~1,520 test LoC | **Plan TBD** |
 
-**Total MVP plans: 1 (this index) + Phase 0 + 9 Stage 1 sub-plans + 2 Stage 2 sub-plans = 13 documents.** Stage 3 (v0.2.0) gets its own sub-plan tree after MVP ships.
+**Total MVP plans: 1 (this index) + Phase 0 + 10 Stage 1 sub-plans (1A–1J) + 2 Stage 2 sub-plans = 14 documents.** Stage 3 (v0.2.0) gets its own sub-plan tree after MVP ships.
 
 ## Dependency graph (high level)
 
@@ -47,8 +48,9 @@ flowchart TD
     S1E["Stage 1E — Language strategies<br/>(Protocol + Rust + Python mixins)"]
     S1F["Stage 1F — Capability catalog<br/>+ drift CI"]
     S1G["Stage 1G — Primitive tools<br/>(8 always-on)"]
+    S1J["Stage 1J — Plugin/skill<br/>generator (NEW 2026-04-25)"]
     S1H["Stage 1H — Full fixtures<br/>+ 31 integration test modules"]
-    S1I["Stage 1I — Plugin package<br/>+ uvx smoke"]
+    S1I["Stage 1I — Run generator on<br/>rust+python; commit trees;<br/>uvx smoke + verify hook"]
     S1Gate["⛳ Stage 1 exit gate"]
     S2A["Stage 2A — 5 ergonomic facades<br/>+ scalpel_transaction_commit<br/>+ Q1/Q4 integrations"]
     S2B["Stage 2B — E2E harness<br/>+ 9 MVP scenarios"]
@@ -62,8 +64,9 @@ flowchart TD
     S1D --> S1E
     S1E --> S1F
     S1E --> S1G
-    S1F --> S1H
-    S1G --> S1H
+    S1F --> S1J
+    S1G --> S1J
+    S1J --> S1H
     S1H --> S1I
     S1I --> S1Gate
     S1Gate --> S2A
@@ -74,7 +77,7 @@ flowchart TD
     class S1Gate,MVP gate
 ```
 
-Stage 1 sub-phases C / D are parallelizable after 1B exits. Sub-phases F and G are parallelizable after 1E exits. Sub-phase H runs after both 1F and 1G exit because integration tests need the primitive tools and the catalog. 1I is the gate before Stage 2.
+Stage 1 sub-phases C / D are parallelizable after 1B exits. Sub-phases F and G are parallelizable after 1E exits. **Stage 1J (plugin/skill generator, inserted 2026-04-25 from v1.1) consumes both F and G** — it introspects the catalog (F) for plugin manifest contents and the primitive tools (G) for the surfaces generated plugins expose via `.mcp.json`. Sub-phase H runs after 1J exits so integration tests can use generated plugins. **Stage 1I refactored 2026-04-25**: drops hand-written manifest; instead runs the generator for rust + python and commits the generated trees. 1I is still the gate before Stage 2.
 
 ## Success criteria for the index
 
