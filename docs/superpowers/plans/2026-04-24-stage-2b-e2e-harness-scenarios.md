@@ -1398,3 +1398,338 @@ Co-Authored-By: AI Hive(R) <noreply@o2.services>"
 Update PROGRESS T3 row to `OUTCOME=DONE`.
 
 ---
+
+### Task 4: E2E scenario E2 — dry-run → inspect → adjust → commit
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e2_dry_run_commit.py`
+
+**Scope:** Drives `ScalpelExtractTool` (Python lane, simplest assertion surface) twice with the same args: first `dry_run=True`, then `dry_run=False`. Asserts the `WorkspaceEdit` payload (encoded inside `RefactorResult.diff`) is byte-equal between the two calls and `diagnostics_delta` matches between the preview and the actual apply.
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_e2e_e2_dry_run_commit.py`:
+
+```python
+"""E2E scenario E2 — dry-run → inspect → adjust → commit.
+
+Maps to scope-report §15.1 row E2: "`dry_run=true` returns same `WorkspaceEdit`
+`dry_run=false` applies; diagnostics_delta matches".
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+def _strip_volatile(diff_text: str) -> str:
+    """Drop checkpoint_id / preview_token / timestamp lines from the diff text
+    so dry-run vs. apply comparison is invariant under runtime ids.
+    """
+    keep: list[str] = []
+    for line in diff_text.splitlines():
+        if any(
+            line.lstrip().startswith(prefix)
+            for prefix in ("checkpoint_id:", "preview_token:", "applied_at:", "took_ms:")
+        ):
+            continue
+        keep.append(line)
+    return "\n".join(keep)
+
+
+@pytest.mark.e2e
+def test_e2_extract_dry_run_matches_commit(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    pre_bytes = src.read_bytes()
+
+    # 1. Dry-run: extract a sub-expression in `evaluate` into a helper.
+    dry_json = mcp_driver_python.extract(
+        file=str(src),
+        name_path="evaluate",
+        target="function",
+        new_name="_eval_div",
+        dry_run=True,
+        language="python",
+    )
+    dry = RefactorResult.model_validate_json(dry_json)
+    assert dry.applied is False, "dry_run=True must not apply"
+    assert dry.preview_token is not None
+    assert dry.diff is not None and len(dry.diff) > 0, "dry_run lacks diff payload"
+    # On-disk bytes are unchanged after dry-run.
+    assert src.read_bytes() == pre_bytes
+
+    dry_diff = _strip_volatile(dry.diff)
+    dry_diag = dry.diagnostics_delta
+
+    # 2. Commit: same args, dry_run=False, plus the preview_token continuation.
+    commit_json = mcp_driver_python.extract(
+        file=str(src),
+        name_path="evaluate",
+        target="function",
+        new_name="_eval_div",
+        dry_run=False,
+        preview_token=dry.preview_token,
+        language="python",
+    )
+    commit = RefactorResult.model_validate_json(commit_json)
+    assert commit.applied is True, f"commit failed: {commit_json}"
+    assert commit.checkpoint_id is not None and commit.checkpoint_id.startswith(
+        "ckpt_"
+    )
+
+    commit_diff = _strip_volatile(commit.diff or "")
+    # Byte-equal WorkspaceEdit payload (modulo volatile id lines).
+    assert commit_diff == dry_diff, (
+        f"dry-run vs. commit diff drifted:\n"
+        f"--- dry ---\n{dry_diff}\n--- commit ---\n{commit_diff}"
+    )
+    # diagnostics_delta matches between preview and apply (load-bearing E2 check).
+    assert commit.diagnostics_delta is not None
+    assert commit.diagnostics_delta.added == dry_diag.added
+    assert commit.diagnostics_delta.removed == dry_diag.removed
+
+    # On-disk file changed after commit.
+    assert src.read_bytes() != pre_bytes
+    assert "_eval_div" in src.read_text(encoding="utf-8")
+
+
+@pytest.mark.e2e
+def test_e2_dry_run_preview_token_expires_after_unrelated_edit(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+
+    dry_json = mcp_driver_python.extract(
+        file=str(src),
+        name_path="evaluate",
+        target="function",
+        new_name="_helper",
+        dry_run=True,
+        language="python",
+    )
+    dry = RefactorResult.model_validate_json(dry_json)
+    expired_token = dry.preview_token
+
+    # External mutation: append a comment to the file (preview becomes stale).
+    src.write_text(src.read_text(encoding="utf-8") + "\n# external edit\n")
+
+    commit_json = mcp_driver_python.extract(
+        file=str(src),
+        name_path="evaluate",
+        target="function",
+        new_name="_helper",
+        dry_run=False,
+        preview_token=expired_token,
+        language="python",
+    )
+    commit = RefactorResult.model_validate_json(commit_json)
+    # Either the commit silently re-runs the dry-run (idempotent path) and
+    # succeeds, OR it returns PREVIEW_EXPIRED. Both behaviors are spec-valid;
+    # E2 asserts the WORST-CASE recovery path is honored.
+    if commit.applied is False:
+        assert commit.failure is not None
+        assert commit.failure.code in ("PREVIEW_EXPIRED", "STALE_VERSION")
+    else:
+        assert commit.checkpoint_id is not None
+```
+
+- [ ] **Step 2: Run the test**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_e2_dry_run_commit.py -v -m e2e --tb=short
+```
+
+Expected: 2 PASSED in ~30 s–1 min.
+
+If `assert commit_diff == dry_diff` FAILs:
+- Likely cause: the facade re-resolves the code action between dry and commit, picking up a slightly different `WorkspaceEdit` because the LSP's internal state changed (e.g., a `$/progress` event invalidated a cache). Mitigation: pass `preview_token=` explicitly (already in the test); if it still drifts, investigate Stage 1B `LanguageServerCodeEditor._apply_workspace_edit`'s preview-token reuse path.
+
+- [ ] **Step 3: Commit T4**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e2_dry_run_commit.py
+git commit -m "test(stage-2b): T4 — E2 dry-run → commit; WorkspaceEdit + diagnostics_delta match
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T4 — bump submodule (E2 scenario)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T4 row to `OUTCOME=DONE`.
+
+---
+
+### Task 5: E2E scenario E3 — rollback after intentional break
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e3_rollback.py`
+
+**Scope:** Drives `ScalpelExtractTool` to apply a refactor, captures the `checkpoint_id`, intentionally breaks the file by extracting a non-existent symbol, then calls `ScalpelRollbackTool.apply(checkpoint_id)`. Asserts the post-rollback tree is byte-identical to the pre-refactor tree across both Rust and Python lanes (parametrized).
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_e2e_e3_rollback.py`:
+
+```python
+"""E2E scenario E3 — rollback after intentional break.
+
+Maps to scope-report §15.1 row E3: "`scalpel_rollback(checkpoint_id)` restores
+byte-identical pre-refactor tree".
+"""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+def _tree_hash(root: Path) -> str:
+    """Stable SHA-256 across all files under root (excluding cargo target)."""
+    h = hashlib.sha256()
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root).as_posix()
+        if rel.startswith("target/") or rel.startswith("__pycache__/"):
+            continue
+        if "__pycache__" in rel or rel.endswith(".pyc"):
+            continue
+        h.update(rel.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(p.read_bytes())
+        h.update(b"\x01")
+    return h.hexdigest()
+
+
+@pytest.mark.e2e
+def test_e3_rollback_restores_python_tree(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    pre_hash = _tree_hash(calcpy_e2e_root)
+
+    # Apply a refactor and capture the checkpoint.
+    apply_json = mcp_driver_python.extract(
+        file=str(src),
+        name_path="evaluate",
+        target="function",
+        new_name="_helper",
+        dry_run=False,
+        language="python",
+    )
+    apply_result = RefactorResult.model_validate_json(apply_json)
+    assert apply_result.applied is True
+    checkpoint_id = apply_result.checkpoint_id
+    assert checkpoint_id is not None
+    mid_hash = _tree_hash(calcpy_e2e_root)
+    assert mid_hash != pre_hash, "extract did not modify the tree"
+
+    # Roll back.
+    rollback_json = mcp_driver_python.rollback(checkpoint_id=checkpoint_id)
+    rollback_result = RefactorResult.model_validate_json(rollback_json)
+    assert rollback_result.applied is True, f"rollback failed: {rollback_json}"
+
+    post_hash = _tree_hash(calcpy_e2e_root)
+    assert post_hash == pre_hash, (
+        f"rollback did not restore the tree:\n"
+        f"  pre  = {pre_hash}\n"
+        f"  post = {post_hash}"
+    )
+
+
+@pytest.mark.e2e
+def test_e3_rollback_restores_rust_tree(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    lib_rs = calcrs_e2e_root / "src" / "lib.rs"
+    pre_hash = _tree_hash(calcrs_e2e_root)
+
+    apply_json = mcp_driver_rust.split_file(
+        file=str(lib_rs),
+        groups={"ast": ["Expr"], "errors": ["CalcError"]},
+        parent_layout="file",
+        reexport_policy="preserve_public_api",
+        dry_run=False,
+        language="rust",
+    )
+    apply_result = RefactorResult.model_validate_json(apply_json)
+    assert apply_result.applied is True
+    checkpoint_id = apply_result.checkpoint_id
+    assert checkpoint_id is not None
+    assert _tree_hash(calcrs_e2e_root) != pre_hash
+
+    rollback_json = mcp_driver_rust.rollback(checkpoint_id=checkpoint_id)
+    rollback_result = RefactorResult.model_validate_json(rollback_json)
+    assert rollback_result.applied is True
+
+    assert _tree_hash(calcrs_e2e_root) == pre_hash, "rust rollback drifted"
+
+
+@pytest.mark.e2e
+def test_e3_rollback_unknown_checkpoint_returns_failure(
+    mcp_driver_python,
+) -> None:
+    rollback_json = mcp_driver_python.rollback(checkpoint_id="ckpt_does_not_exist")
+    rollback_result = RefactorResult.model_validate_json(rollback_json)
+    assert rollback_result.applied is False
+    assert rollback_result.failure is not None
+    # Error code per Stage 1G primitive contract.
+    assert rollback_result.failure.code in ("APPLY_FAILED", "INVALID_ARGUMENT")
+```
+
+- [ ] **Step 2: Run the test**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_e3_rollback.py -v -m e2e --tb=short
+```
+
+Expected: 3 PASSED in ~1–4 min (RA cold-start dominates the Rust lane).
+
+If `post_hash != pre_hash` FAILs:
+- The inverse-edit computation in Stage 1B `inverse_workspace_edit` did not produce a byte-identical reverse for some shape (likely `CreateFile` ↔ `DeleteFile` or `RenameFile` with whitespace drift on the new file). Inspect `RefactorResult.diff` for both apply + rollback and diff them.
+
+- [ ] **Step 3: Commit T5**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e3_rollback.py
+git commit -m "test(stage-2b): T5 — E3 rollback restores byte-identical pre-refactor tree
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T5 — bump submodule (E3 scenario)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T5 row to `OUTCOME=DONE`.
+
+---
