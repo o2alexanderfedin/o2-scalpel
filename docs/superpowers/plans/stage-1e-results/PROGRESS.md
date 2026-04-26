@@ -14,7 +14,7 @@ Built on: stage-1d-multi-server-merge-complete
 | T4 | pylsp_server.py real workspace/applyEdit drain (1D T11 deferred)   | `0bbe72cb` | DONE      | Branch B — base `execute_command` already returns `(response, drained)`; only the regression test landed. pylsp 1.14.0 lacks `codeAction/resolve`; pylsp-rope ships command-typed actions directly so the resolve call is bypassed. |
 | T5 | basedpyright_server.py adapter (pull-mode diagnostic, P4)          | `f1316152` | DONE      | Same T3 deviations re-applied: override `get_language_enum_instance`, implement `_start_server`, use `open_file()` ctx mgr in boot test. Boot+pull GREEN — basedpyright returned items[] with source="basedpyright". |
 | T6 | ruff_server.py adapter                                             | `08e37bfe` | DONE      | Same T3/T5 deviations re-applied. Boot+codeAction GREEN — ruff offered source.organizeImports. Test fixed to pass absolute path to `request_code_actions` (it calls `Path(file).as_uri()`). Cross-check (all 3 Python adapters import together) GREEN. |
-| T7 | python_strategy.py — MultiServerCoordinator wiring (no mypy)       | _pending_ | _pending_ | — |
+| T7 | python_strategy.py — MultiServerCoordinator wiring (no mypy)       | `626387aa` | DONE      | 6/6 green. _SERVER_LANGUAGE_TAG mapping forces pool dedup keys to be distinct per LSP role. Q1-cascade regression-guard test passes (no didSave-injection method names leak). |
 | T8 | python_strategy.py — 14-step interpreter + Rope library bridge     | _pending_ | _pending_ | — |
 | T9 | __init__.py registry + smoke + ledger close + ff-merge + tag       | _pending_ | _pending_ | — |
 
