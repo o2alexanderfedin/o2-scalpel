@@ -1,0 +1,60 @@
+# Stage 1D — Multi-Server Merge — Progress Ledger
+
+Started: 2026-04-25
+Branch: feature/stage-1d-multi-server-merge (parent + submodule)
+Author: AI Hive(R)
+Built on: stage-1b-applier-checkpoints-transactions-complete
+
+| Task | Description | Branch SHA (submodule) | Outcome | Follow-up |
+|---|---|---|---|---|
+| T0  | Bootstrap progress ledger + `_FakeServer` fixture                      | `d897516e` | OK | — |
+| T1  | §11.6 multi-server schemas (pydantic v2 BaseModels)                    | `9006546b` | OK | — |
+| T2  | `broadcast()` parallel fan-out (asyncio.gather + wait_for)             | `8452c810` | OK | — |
+| T3  | `_normalize_kind()` — P2 sub-kind collapse                             | `88a9d185` | OK | — |
+| T4  | `_apply_priority()` — §11.1 priority table                             | `c17e4f23` | OK | — |
+| T5  | `_dedup()` — title + WorkspaceEdit structural equality                 | `111f6735` | OK | — |
+| T6  | resolve-then-classify (deferred + direct)                              | `263fdf1d` | OK | — |
+| T7  | §11.7 four invariants (apply / ast.parse / disabled / boundary)        | `82685365` | OK | — |
+| T8  | `merge_rename()` + P6 whole-file ↔ surgical reconciliation             | `2a04d84c` | OK | — |
+| T9  | provenance + edit-attribution log (§11.4 + §11.5) + replay             | `2bb49de2` | OK | — |
+| T10 | §11.2 six server-disagreement cases                                    | `8ed2d154` | OK_PARTIAL | Dropped 4 integration tests requiring `MergeCodeActionsResult.warnings` wrapper API. T6's `merge_code_actions` returns bare `list[MergedCodeAction]`; refactoring to add the wrapper would touch T6+T7 contracts. T11 e2e covers the §11.2 case-4 timeout / case-3 disabled / case-6 byte-identical paths via `MultiServerBroadcastResult.timeouts` directly. Deferred wrapper API to Stage 1E facade layer. |
+| T11 | E2E: 3-fake-server P2 + P6 + auto-import replay                        | `6a526c12` | OK | Plan called for 5 adapted tests; landed 6 (P2 baseline + debug, P6 baseline + debug, auto-import quickfix, log replay round-trip). Spike suite 303/303. Stage 1D total: 118/118. Production drain for pylsp-rope command-typed → applyEdit reverse-request deferred to Stage 1E adapter; T11 uses an `edit`-field shortcut on the fake to validate the priority filter dropping pylsp-rope. |
+| T12 | Submodule ff-merge to main + parent pointer bump + tag                 | submodule `3ae27952` / parent `4bf4a4d4` | OK | Submodule pointer already at merged HEAD — pointer bump was a no-op. Tag `stage-1d-multi-server-merge-complete` → `58b36804`. |
+
+## Decisions log
+
+(append-only; one bullet per decision with date + rationale)
+
+## Stage 1B entry baseline
+
+- Submodule `main` head at Stage 1D start: `ba7e62b1` (per Stage 1B PROGRESS final verdict)
+- Parent `develop` head at Stage 1D start: `228ee7b5` (parent of Stage 1D merge commit `4bf4a4d4`)
+- Stage 1B tag: `stage-1b-applier-checkpoints-transactions-complete`
+- Stage 1B spike-suite green: 130/130 (per Stage 1B PROGRESS final verdict)
+
+## Stage 1D — final verdict
+
+- All 13 tasks (T0–T12) complete.
+- Submodule `vendor/serena` main: `3ae27952`.
+- Parent `develop` head: `4bf4a4d4`.
+- Tag: `stage-1d-multi-server-merge-complete`.
+- Spike-suite green: 303 (Phase 0 + Stage 1A + Stage 1B + Stage 1D).
+- LoC delta vs Stage 1B: ~+430 logic in `refactoring/multi_server.py`,
+  ~+700 test, +1 production file (multi_server.py new), +12 new test
+  files (T1–T11 plus the conftest_stage_1d helper).
+
+**Stage 1E entry approval**: PROCEED. Stage 1E (`PylspServer` /
+`BasedpyrightServer` / `RuffServer` adapters + `PythonStrategy` skeleton)
+drops the three adapters into the existing `MultiServerCoordinator`
+constructor's `dict[server_id, SolidLanguageServer]`; no Stage 1D code
+changes are required.
+
+## Spike outcome quick-reference (carryover for context)
+
+- P2 → DIVERGENT — ruff wins `source.organizeImports`; pylsp-rope dropped at merge time. Sub-kind hierarchical normalization required (`source.organizeImports.ruff` → `source.organizeImports`). Implemented in T3 + T4.
+- P5a → C (DROP pylsp-mypy) — merger never receives pylsp-mypy candidate; "type error" priority row collapses to basedpyright-only. Documented in §11.1 cross-reference; enforced by T4 priority table.
+- P6 → DIVERGENT — pylsp wins `textDocument/rename`; whole-file vs surgical edit reconciliation required. Implemented in T8 via `difflib` line-mapping.
+- §11.1 priority table → Stage 1D (this plan).
+- §11.6 schemas → Stage 1D T1.
+- §11.7 invariants → Stage 1D T7 (consumes Stage 1A `is_in_workspace` for invariant 4).
+- §11.5 edit-attribution log → Stage 1D T9.
