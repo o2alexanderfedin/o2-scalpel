@@ -895,5 +895,1135 @@ EOF
 
 ---
 
+### Task 3: `capabilities.py` — `_introspect_adapter_kinds()` adapter overlay
+
+**Files:**
+- Modify: `vendor/serena/src/serena/refactoring/capabilities.py` (add `_introspect_adapter_kinds` helper + adapter map + factory enrichment).
+- Create: `vendor/serena/test/spikes/test_stage_1f_t3_adapter_introspection.py`.
+
+- [ ] **Step 1: Write failing test — adapter codeActionKind valueSet introspection**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1f_t3_adapter_introspection.py`:
+
+```python
+"""T3 — _introspect_adapter_kinds reads codeActionKind.valueSet."""
+
+from __future__ import annotations
+
+import inspect
+
+import pytest
+
+
+def test_introspect_pylsp_returns_seven_kinds() -> None:
+    from serena.refactoring.capabilities import _introspect_adapter_kinds
+    from solidlsp.language_servers.pylsp_server import PylspServer
+
+    kinds = _introspect_adapter_kinds(PylspServer, repository_absolute_path="/tmp/x")
+    # pylsp_server.py:127-135 advertises:
+    # ["", "quickfix", "refactor", "refactor.extract", "refactor.inline",
+    #  "refactor.rewrite", "source", "source.organizeImports"] — empty string
+    # is filtered by the helper, so 7 kinds.
+    assert "" not in kinds
+    assert "quickfix" in kinds
+    assert "refactor.extract" in kinds
+    assert "source.organizeImports" in kinds
+    assert len(kinds) == 7
+
+
+def test_introspect_ruff_returns_four_kinds() -> None:
+    from serena.refactoring.capabilities import _introspect_adapter_kinds
+    from solidlsp.language_servers.ruff_server import RuffServer
+
+    kinds = _introspect_adapter_kinds(RuffServer, repository_absolute_path="/tmp/x")
+    # ruff_server.py:98-104 advertises:
+    # ["", "quickfix", "source", "source.organizeImports", "source.fixAll"]
+    assert "" not in kinds
+    assert kinds == frozenset({"quickfix", "source", "source.organizeImports", "source.fixAll"})
+
+
+def test_introspect_basedpyright_returns_empty_set() -> None:
+    """basedpyright is pull-mode-diagnostics-only; advertises no codeAction kinds.
+
+    Stage 1F treats this as 'attribution falls back to strategy default'
+    rather than an error. The helper returns an empty frozenset and the
+    factory keeps the strategy-attributed source_server.
+    """
+    from serena.refactoring.capabilities import _introspect_adapter_kinds
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+
+    kinds = _introspect_adapter_kinds(BasedpyrightServer, repository_absolute_path="/tmp/x")
+    assert kinds == frozenset()
+
+
+def test_introspect_rust_analyzer_returns_nonempty_set() -> None:
+    from serena.refactoring.capabilities import _introspect_adapter_kinds
+    from solidlsp.language_servers.rust_analyzer import RustAnalyzer
+
+    kinds = _introspect_adapter_kinds(RustAnalyzer, repository_absolute_path="/tmp/x")
+    # rust-analyzer's adapter advertises a non-empty kind set; the exact
+    # contents are part of the golden baseline (T4) — here we only assert
+    # the introspection path works against a non-Python adapter.
+    assert isinstance(kinds, frozenset)
+    assert len(kinds) > 0
+
+
+def test_introspect_raises_on_non_static_method() -> None:
+    """If a future adapter makes _get_initialize_params an instance method,
+    the helper raises CatalogIntrospectionError with an actionable message."""
+    from serena.refactoring.capabilities import (
+        CatalogIntrospectionError,
+        _introspect_adapter_kinds,
+    )
+
+    class _BadAdapter:
+        def _get_initialize_params(self, repository_absolute_path: str) -> dict:  # type: ignore[no-untyped-def]
+            return {}
+
+    with pytest.raises(CatalogIntrospectionError) as excinfo:
+        _introspect_adapter_kinds(_BadAdapter, repository_absolute_path="/tmp/x")
+    assert "staticmethod" in str(excinfo.value)
+
+
+def test_factory_with_adapters_attributes_ruff_kinds_to_ruff() -> None:
+    """T3 factory contract: when an adapter advertises a kind, the catalog
+    record for (language, kind) gets that adapter's source_server.
+
+    With the Stage 1E adapter set:
+      - ruff advertises source.organizeImports + source.fixAll → those two
+        Python kinds become source_server='ruff'.
+      - pylsp advertises refactor.extract / refactor.inline / refactor.rewrite
+        / quickfix → those Python kinds become source_server='pylsp-rope'.
+    """
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    by_id = {r.id: r for r in cat.records}
+
+    # source.organizeImports is in PythonStrategy.code_action_allow_list AND
+    # ruff's adapter advertises it; T3 attributes it to ruff.
+    assert by_id["python.source.organizeImports"].source_server == "ruff"
+    assert by_id["python.source.fixAll"].source_server == "ruff"
+    # refactor.extract is in PythonStrategy.code_action_allow_list AND pylsp
+    # advertises it; T3 attributes it to pylsp-rope (also the default).
+    assert by_id["python.refactor.extract"].source_server == "pylsp-rope"
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t3_adapter_introspection.py -v
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Expected: 6 of 7 fail with `ImportError: cannot import name '_introspect_adapter_kinds'` or `cannot import name 'CatalogIntrospectionError'`. The factory-attribution test fails because T2 attributes everything to the default.
+
+- [ ] **Step 3: Add `_introspect_adapter_kinds` + `CatalogIntrospectionError` + adapter map + factory enrichment to `capabilities.py`**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/refactoring/capabilities.py`. Add the new exception class near the top (after the imports, before `CapabilityRecord`):
+
+```python
+class CatalogIntrospectionError(RuntimeError):
+    """Raised when an adapter cannot be introspected for codeAction kinds.
+
+    Stage 1F's contract is *static* introspection: the adapter's
+    ``_get_initialize_params`` MUST be a ``@staticmethod`` so it can be
+    invoked on the class without booting a server. If this invariant
+    breaks, the error message points at the offending adapter and tells
+    the maintainer how to fix it.
+    """
+```
+
+Add the adapter map + helper + enriched factory body. Append below the existing `_DEFAULT_SOURCE_SERVER_BY_LANGUAGE`:
+
+```python
+# Per-server adapter classes. Stage 1F walks these to extract each adapter's
+# advertised codeActionKind.valueSet. Adding a new server requires:
+#   1. Add an entry here mapping the ProvenanceLiteral to the adapter class.
+#   2. Re-run pytest --update-catalog-baseline to refresh the golden file.
+#   3. Commit the regenerated baseline alongside the adapter change.
+def _adapter_map() -> dict[ProvenanceLiteral, type]:
+    """Lazy import to avoid forcing solidlsp adapter modules at import time."""
+    from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+    from solidlsp.language_servers.pylsp_server import PylspServer
+    from solidlsp.language_servers.ruff_server import RuffServer
+    from solidlsp.language_servers.rust_analyzer import RustAnalyzer
+    return {
+        "pylsp-rope": PylspServer,
+        "basedpyright": BasedpyrightServer,
+        "ruff": RuffServer,
+        "rust-analyzer": RustAnalyzer,
+    }
+
+
+# Per-language ordered preference for adapter attribution. When multiple
+# adapters advertise the same kind, the first one in this tuple wins —
+# this matches the Stage 1D _apply_priority() merge order so the catalog
+# and the live merger never disagree on attribution.
+_ADAPTER_ATTRIBUTION_ORDER: dict[str, tuple[ProvenanceLiteral, ...]] = {
+    "python": ("ruff", "pylsp-rope", "basedpyright"),
+    "rust": ("rust-analyzer",),
+}
+
+
+def _introspect_adapter_kinds(
+    adapter_cls: type, *, repository_absolute_path: str
+) -> frozenset[str]:
+    """Extract ``codeActionLiteralSupport.codeActionKind.valueSet`` from an adapter.
+
+    The adapter's ``_get_initialize_params`` MUST be a ``@staticmethod``
+    so we can invoke it on the class object without spawning the LSP
+    process. If it is not, ``CatalogIntrospectionError`` is raised with
+    a fix-it message.
+
+    The empty string ``""`` (a valid LSP codeActionKind sentinel meaning
+    "any kind") is filtered out — the catalog records concrete kinds only.
+
+    :param adapter_cls: e.g. ``PylspServer`` (the *class*, not an instance).
+    :param repository_absolute_path: any path; the helper passes it through
+        to the adapter's static method but the result is independent of the
+        path for every Stage 1E adapter.
+    :return: frozenset of advertised concrete codeActionKind strings.
+    """
+    static = inspect.getattr_static(adapter_cls, "_get_initialize_params")
+    if not isinstance(static, staticmethod):
+        raise CatalogIntrospectionError(
+            f"{adapter_cls.__name__}._get_initialize_params is not a "
+            f"staticmethod; Stage 1F catalog introspection requires it to "
+            f"be one (so the adapter can be queried without booting the "
+            f"LSP). Refactor the adapter to use @staticmethod."
+        )
+    params = adapter_cls._get_initialize_params(repository_absolute_path)
+    text_doc = params.get("capabilities", {}).get("textDocument", {})
+    code_action = text_doc.get("codeAction", {})
+    literal = code_action.get("codeActionLiteralSupport", {})
+    kind = literal.get("codeActionKind", {})
+    value_set = kind.get("valueSet", [])
+    return frozenset(k for k in value_set if k != "")
+```
+
+Now extend the helper imports at the top:
+
+```python
+import inspect
+import json
+from typing import Any, Mapping, get_args
+```
+
+Replace the body of `build_capability_catalog` with the enriched version:
+
+```python
+def build_capability_catalog(
+    strategy_registry: Mapping[Any, type] | None = None,
+    *,
+    project_root: Any = None,
+) -> CapabilityCatalog:
+    """Walk strategies + adapters to build the catalog.
+
+    For each (strategy, kind) pair:
+      1. Compute attribution by walking ``_ADAPTER_ATTRIBUTION_ORDER`` for
+         the strategy's language and picking the first adapter whose
+         introspected kind set contains ``kind``.
+      2. Fall back to ``_DEFAULT_SOURCE_SERVER_BY_LANGUAGE`` if no adapter
+         advertises ``kind`` (e.g. ``refactor`` is in
+         ``PythonStrategy.code_action_allow_list`` as a parent kind but
+         no adapter advertises the bare ``refactor`` literal).
+
+    See module-level docstring for the rationale on static introspection.
+    """
+    if strategy_registry is None:
+        return CapabilityCatalog(records=())
+
+    legal_servers = set(get_args(ProvenanceLiteral))
+    adapter_map = _adapter_map()
+
+    # Cache one introspection per adapter class — calling
+    # _get_initialize_params for every (strategy, kind) pair is wasteful.
+    introspected: dict[ProvenanceLiteral, frozenset[str]] = {}
+    for server_id, adapter_cls in adapter_map.items():
+        introspected[server_id] = _introspect_adapter_kinds(
+            adapter_cls, repository_absolute_path="/tmp/_stage_1f_introspect"
+        )
+
+    records: list[CapabilityRecord] = []
+    for _language_enum, strategy_cls in strategy_registry.items():
+        language_id = strategy_cls.language_id
+        default_server = _DEFAULT_SOURCE_SERVER_BY_LANGUAGE.get(language_id)
+        if default_server is None or default_server not in legal_servers:
+            raise ValueError(
+                f"capability catalog: no default source_server registered "
+                f"for language_id={language_id!r}; add it to "
+                f"_DEFAULT_SOURCE_SERVER_BY_LANGUAGE"
+            )
+        attribution_order = _ADAPTER_ATTRIBUTION_ORDER.get(
+            language_id, (default_server,)
+        )
+        for kind in strategy_cls.code_action_allow_list:
+            attributed: ProvenanceLiteral = default_server
+            for server_id in attribution_order:
+                if kind in introspected.get(server_id, frozenset()):
+                    attributed = server_id
+                    break
+            records.append(
+                CapabilityRecord(
+                    id=f"{language_id}.{kind}",
+                    language=language_id,
+                    kind=kind,
+                    source_server=attributed,
+                    params_schema={},
+                    preferred_facade=None,
+                    extension_allow_list=strategy_cls.extension_allow_list,
+                )
+            )
+    return CapabilityCatalog(records=tuple(records))
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t1_capability_record_schema.py \
+  vendor/serena/test/spikes/test_stage_1f_t2_build_catalog.py \
+  vendor/serena/test/spikes/test_stage_1f_t3_adapter_introspection.py -v
+```
+
+Expected: 7 + 8 + 7 = 22 green. **Watch:** the T2 test `test_factory_python_source_server_is_pylsp_rope_default` will FAIL after T3 enrichment (organizeImports + fixAll now attribute to ruff). T3 step 5 fixes that test:
+
+- [ ] **Step 5: Update the T2 default-attribution test to reflect T3 enrichment**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1f_t2_build_catalog.py`. Replace `test_factory_python_source_server_is_pylsp_rope_default` with:
+
+```python
+def test_factory_python_source_server_is_one_of_python_servers() -> None:
+    """T3 enriches T2's defaults: each Python record's source_server is
+    one of the Python adapter set ('pylsp-rope', 'basedpyright', 'ruff').
+    The exact attribution per kind is asserted in T3's tests."""
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    legal_python_servers = {"pylsp-rope", "basedpyright", "ruff"}
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    for rec in cat.records:
+        if rec.language == "python":
+            assert rec.source_server in legal_python_servers
+        elif rec.language == "rust":
+            assert rec.source_server == "rust-analyzer"
+```
+
+Re-run all three suites — expect 22/22 green.
+
+- [ ] **Step 6: Commit T3**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/refactoring/capabilities.py \
+        test/spikes/test_stage_1f_t2_build_catalog.py \
+        test/spikes/test_stage_1f_t3_adapter_introspection.py
+git commit -m "$(cat <<'EOF'
+stage-1f(t3): _introspect_adapter_kinds + factory enrichment
+
+- _introspect_adapter_kinds(adapter_cls): static-method introspection
+  of codeActionLiteralSupport.codeActionKind.valueSet; raises
+  CatalogIntrospectionError if _get_initialize_params is not a
+  @staticmethod.
+- _adapter_map(): lazy mapping ProvenanceLiteral -> adapter class.
+- _ADAPTER_ATTRIBUTION_ORDER: per-language ordered preference; first
+  adapter advertising the kind wins, matching Stage 1D priority.
+- Factory now overlays adapter-introspected kinds onto the strategy
+  walk: organizeImports + source.fixAll attribute to ruff; basedpyright
+  advertises no kinds (pull-mode only) and falls through.
+
+Tests: T1 7/7 + T2 8/8 + T3 7/7 = 22/22 green.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T3
+```
+
+Then update parent ledger (separate commit, same pattern as T1/T2).
+
+---
+
+### Task 4: Golden-file baseline + `--update-catalog-baseline` plumbing
+
+**Files:**
+- Modify: `vendor/serena/test/spikes/conftest.py` (add CLI option + fixture).
+- Create: `vendor/serena/test/spikes/data/capability_catalog_baseline.json` (committed via the regeneration test).
+- Create: `vendor/serena/test/spikes/test_stage_1f_t4_baseline_round_trip.py`.
+
+- [ ] **Step 1: Write failing test — round-trip + regeneration entry point**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1f_t4_baseline_round_trip.py`:
+
+```python
+"""T4 — golden-file baseline round-trip + --update-catalog-baseline UX."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+
+def test_baseline_path_fixture_returns_repo_relative_path(
+    capability_catalog_baseline_path: Path,
+) -> None:
+    assert capability_catalog_baseline_path.name == "capability_catalog_baseline.json"
+    assert capability_catalog_baseline_path.parent.name == "data"
+    assert capability_catalog_baseline_path.parent.parent.name == "spikes"
+
+
+def test_baseline_file_is_checked_in(
+    capability_catalog_baseline_path: Path,
+) -> None:
+    assert capability_catalog_baseline_path.exists(), (
+        "capability_catalog_baseline.json missing; run "
+        "pytest test/spikes/test_stage_1f_t5_catalog_drift.py "
+        "--update-catalog-baseline"
+    )
+
+
+def test_baseline_round_trip_through_catalog(
+    capability_catalog_baseline_path: Path,
+) -> None:
+    from serena.refactoring.capabilities import CapabilityCatalog
+
+    blob = capability_catalog_baseline_path.read_text(encoding="utf-8")
+    cat = CapabilityCatalog.from_json(blob)
+    reblob = cat.to_json()
+    assert blob == reblob, (
+        "baseline file is not in canonical form; re-baseline via "
+        "pytest --update-catalog-baseline"
+    )
+
+
+def test_baseline_schema_version_is_one(
+    capability_catalog_baseline_path: Path,
+) -> None:
+    payload = json.loads(capability_catalog_baseline_path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+
+
+def test_baseline_records_are_sorted(
+    capability_catalog_baseline_path: Path,
+) -> None:
+    payload = json.loads(capability_catalog_baseline_path.read_text(encoding="utf-8"))
+    keys = [
+        (r["language"], r["source_server"], r["kind"], r["id"])
+        for r in payload["records"]
+    ]
+    assert keys == sorted(keys)
+
+
+def test_baseline_record_count_matches_live_catalog(
+    capability_catalog_baseline_path: Path,
+) -> None:
+    """Sanity-check: baseline cardinality equals live-introspected cardinality.
+
+    Pure cardinality — drift content is checked in T5. This test catches
+    'someone added a strategy kind without re-baselining'.
+    """
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    live = build_capability_catalog(STRATEGY_REGISTRY)
+    payload = json.loads(capability_catalog_baseline_path.read_text(encoding="utf-8"))
+    assert len(live.records) == len(payload["records"]), (
+        f"live catalog has {len(live.records)} records, baseline has "
+        f"{len(payload['records'])}; re-baseline via "
+        f"pytest --update-catalog-baseline"
+    )
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t4_baseline_round_trip.py -v
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Expected: every test errors with `fixture 'capability_catalog_baseline_path' not found` (the fixture is added in step 3).
+
+- [ ] **Step 3: Add the conftest fixture + CLI option**
+
+Open `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/conftest.py`. Append at the bottom (do not modify existing fixtures):
+
+```python
+# ---------------------------------------------------------------------------
+# Stage 1F — capability catalog drift gate plumbing.
+# ---------------------------------------------------------------------------
+
+from pathlib import Path as _StageOneFPath  # local alias to avoid clobber
+
+
+def pytest_addoption(parser):  # noqa: D401 — pytest hook
+    """Register --update-catalog-baseline CLI flag.
+
+    When passed, the Stage 1F drift gate (T5) regenerates the golden file
+    instead of asserting against it. CI MUST NOT pass this flag; humans
+    do, after a deliberate strategy / adapter change, then commit the
+    regenerated file alongside the change.
+    """
+    group = parser.getgroup("o2-scalpel")
+    group.addoption(
+        "--update-catalog-baseline",
+        action="store_true",
+        default=False,
+        dest="update_catalog_baseline",
+        help=(
+            "Regenerate vendor/serena/test/spikes/data/"
+            "capability_catalog_baseline.json from the live catalog. "
+            "Use after a deliberate strategy or adapter change; commit "
+            "the regenerated file alongside the change."
+        ),
+    )
+
+
+@pytest.fixture(scope="session")
+def capability_catalog_baseline_path() -> _StageOneFPath:
+    """Absolute path to the checked-in capability catalog baseline JSON."""
+    here = _StageOneFPath(__file__).parent
+    return here / "data" / "capability_catalog_baseline.json"
+
+
+@pytest.fixture(scope="session")
+def update_catalog_baseline_requested(request) -> bool:
+    return bool(request.config.getoption("update_catalog_baseline"))
+```
+
+Note: if the existing `conftest.py` already imports `pytest`, do not double-import; otherwise add `import pytest` at the top of the appended block.
+
+- [ ] **Step 4: Generate the initial baseline file via the regeneration entry point**
+
+Add this regeneration helper test at the BOTTOM of `test_stage_1f_t4_baseline_round_trip.py`:
+
+```python
+def test_regenerate_baseline_when_flag_set(
+    capability_catalog_baseline_path: Path,
+    update_catalog_baseline_requested: bool,
+) -> None:
+    """When --update-catalog-baseline is passed, regenerate the file.
+
+    Without the flag, the test SKIPs (so normal test runs are silent).
+    With the flag, the file is rewritten and the test passes; the human
+    then commits the regenerated file.
+    """
+    if not update_catalog_baseline_requested:
+        pytest.skip("pass --update-catalog-baseline to regenerate")
+
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    capability_catalog_baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    capability_catalog_baseline_path.write_text(cat.to_json(), encoding="utf-8")
+```
+
+Now generate the initial baseline:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t4_baseline_round_trip.py::test_regenerate_baseline_when_flag_set \
+  --update-catalog-baseline -v
+ls -l vendor/serena/test/spikes/data/capability_catalog_baseline.json
+```
+
+Expected: PASS (1 test); the file exists and contains 13 records (7 Python + 6 Rust per Stage 1E).
+
+- [ ] **Step 5: Re-run the full T4 suite without the flag**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t4_baseline_round_trip.py -v
+```
+
+Expected: 6 PASS + 1 SKIP (the regeneration test SKIPs without the flag). No FAIL.
+
+- [ ] **Step 6: Spot-check the baseline file shape**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+head -25 vendor/serena/test/spikes/data/capability_catalog_baseline.json
+tail -5 vendor/serena/test/spikes/data/capability_catalog_baseline.json
+python3 -c "import json; p=json.load(open('vendor/serena/test/spikes/data/capability_catalog_baseline.json')); print('records:', len(p['records']))"
+```
+
+Expected: top shows `"schema_version": 1,` and an opening `"records": [`; tail shows the closing `}\n` with a trailing newline; `records:` line prints `13`.
+
+- [ ] **Step 7: Commit T4**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/spikes/conftest.py \
+        test/spikes/test_stage_1f_t4_baseline_round_trip.py \
+        test/spikes/data/capability_catalog_baseline.json
+git commit -m "$(cat <<'EOF'
+stage-1f(t4): golden-file baseline + --update-catalog-baseline plumbing
+
+- conftest.py: new pytest_addoption registers --update-catalog-baseline
+  CLI flag (off by default); new capability_catalog_baseline_path
+  session fixture.
+- test_stage_1f_t4_baseline_round_trip.py: 7 tests covering fixture
+  shape, file presence, canonical round-trip, schema_version=1,
+  sorted-records invariant, cardinality match against live catalog,
+  and the regeneration entry point gated by the CLI flag.
+- data/capability_catalog_baseline.json: initial checked-in baseline,
+  13 records (7 Python + 6 Rust) reflecting the Stage 1E strategy +
+  adapter surface.
+
+Tests: T1 7 + T2 8 + T3 7 + T4 6 + 1 SKIP = 29 collected (28 PASS, 1 SKIP).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T4
+```
+
+Then update parent ledger (separate commit, same pattern).
+
+---
+
+### Task 5: `test_stage_1f_t5_catalog_drift.py` — the drift gate
+
+**Files:**
+- Create: `vendor/serena/test/spikes/test_stage_1f_t5_catalog_drift.py`.
+
+- [ ] **Step 1: Write failing test — drift detection + regeneration UX**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1f_t5_catalog_drift.py`:
+
+```python
+"""T5 — capability catalog drift gate (the CI assertion)."""
+
+from __future__ import annotations
+
+import difflib
+from pathlib import Path
+
+import pytest
+
+
+_REBASELINE_HINT = (
+    "To re-baseline, run: pytest "
+    "test/spikes/test_stage_1f_t5_catalog_drift.py "
+    "--update-catalog-baseline"
+)
+
+
+def test_live_catalog_matches_checked_in_baseline(
+    capability_catalog_baseline_path: Path,
+    update_catalog_baseline_requested: bool,
+) -> None:
+    """The drift gate.
+
+    Live ``build_capability_catalog(STRATEGY_REGISTRY)`` must produce
+    byte-identical JSON to the checked-in golden file. Any diff fails
+    CI with the exact regeneration command in the failure message.
+
+    When ``--update-catalog-baseline`` is passed, the file is rewritten
+    and the test passes — humans use this after a deliberate strategy
+    or adapter change.
+    """
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    live_blob = build_capability_catalog(STRATEGY_REGISTRY).to_json()
+
+    if update_catalog_baseline_requested:
+        capability_catalog_baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        capability_catalog_baseline_path.write_text(live_blob, encoding="utf-8")
+        return
+
+    if not capability_catalog_baseline_path.exists():
+        pytest.fail(
+            f"capability catalog baseline missing: "
+            f"{capability_catalog_baseline_path}\n{_REBASELINE_HINT}"
+        )
+
+    checked_in = capability_catalog_baseline_path.read_text(encoding="utf-8")
+    if live_blob == checked_in:
+        return
+
+    diff = "\n".join(
+        difflib.unified_diff(
+            checked_in.splitlines(),
+            live_blob.splitlines(),
+            fromfile="baseline (checked-in)",
+            tofile="catalog (live)",
+            lineterm="",
+        )
+    )
+    pytest.fail(
+        f"capability catalog drift detected.\n\n"
+        f"{diff}\n\n"
+        f"{_REBASELINE_HINT}"
+    )
+
+
+def test_drift_failure_message_carries_regeneration_command(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Synthetic drift: point the fixture at an empty baseline and assert
+    the failure message contains the literal regeneration command.
+
+    This is the *meta* test — it proves the human ergonomics work even
+    when nobody on the team remembers how to re-baseline.
+    """
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    fake_baseline = tmp_path / "fake_baseline.json"
+    fake_baseline.write_text(
+        '{"schema_version": 1, "records": []}\n', encoding="utf-8"
+    )
+
+    live_blob = build_capability_catalog(STRATEGY_REGISTRY).to_json()
+    checked_in = fake_baseline.read_text(encoding="utf-8")
+    assert live_blob != checked_in  # precondition
+
+    # Re-run the same logic the gate uses, capture the would-be failure.
+    diff = "\n".join(
+        difflib.unified_diff(
+            checked_in.splitlines(),
+            live_blob.splitlines(),
+            fromfile="baseline (checked-in)",
+            tofile="catalog (live)",
+            lineterm="",
+        )
+    )
+    message = (
+        f"capability catalog drift detected.\n\n"
+        f"{diff}\n\n"
+        f"{_REBASELINE_HINT}"
+    )
+    assert "--update-catalog-baseline" in message
+    assert "test_stage_1f_t5_catalog_drift.py" in message
+
+
+def test_rebaseline_flag_round_trip_idempotent(
+    capability_catalog_baseline_path: Path,
+) -> None:
+    """Calling the regeneration logic twice in a row produces the same file.
+
+    Catches accidental nondeterminism in build_capability_catalog (e.g.
+    set iteration order leaking into the JSON).
+    """
+    from serena.refactoring import STRATEGY_REGISTRY
+    from serena.refactoring.capabilities import build_capability_catalog
+
+    blob_a = build_capability_catalog(STRATEGY_REGISTRY).to_json()
+    blob_b = build_capability_catalog(STRATEGY_REGISTRY).to_json()
+    assert blob_a == blob_b
+    # And matches what's actually checked in (post-T4 commit).
+    assert blob_a == capability_catalog_baseline_path.read_text(encoding="utf-8")
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t5_catalog_drift.py -v
+```
+
+- [ ] **Step 2: Run test to verify it passes immediately**
+
+Expected: 3/3 PASS. T5 has no implementation step — the gate is the test itself; the helper machinery (`_REBASELINE_HINT`, `unified_diff`) lives in the test module.
+
+If `test_live_catalog_matches_checked_in_baseline` FAILS on first run, the T4 baseline file is stale — re-run with `--update-catalog-baseline` and recommit.
+
+- [ ] **Step 3: Negative-path verification — manually break the baseline and confirm the gate fires**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+cp vendor/serena/test/spikes/data/capability_catalog_baseline.json /tmp/catalog_save.json
+python3 -c "
+import json
+p = json.load(open('vendor/serena/test/spikes/data/capability_catalog_baseline.json'))
+p['records'].append({'id':'fake','language':'python','kind':'fake','source_server':'ruff','params_schema':{},'preferred_facade':None,'extension_allow_list':['.py']})
+open('vendor/serena/test/spikes/data/capability_catalog_baseline.json','w').write(json.dumps(p, indent=2, sort_keys=True) + '\n')
+"
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t5_catalog_drift.py::test_live_catalog_matches_checked_in_baseline \
+  -v 2>&1 | tail -20
+# Restore.
+cp /tmp/catalog_save.json vendor/serena/test/spikes/data/capability_catalog_baseline.json
+```
+
+Expected: gate FAILS with a unified diff and the `--update-catalog-baseline` hint visible in the output. Then restoring the file makes the gate green again.
+
+- [ ] **Step 4: Confirm the failure message UX literal**
+
+The exact string `"To re-baseline, run: pytest test/spikes/test_stage_1f_t5_catalog_drift.py --update-catalog-baseline"` MUST appear in the failure output (Conventions §"Drift gate UX"). Step 3 above visually confirms this; step 2's `test_drift_failure_message_carries_regeneration_command` asserts the substring programmatically.
+
+- [ ] **Step 5: Commit T5**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/spikes/test_stage_1f_t5_catalog_drift.py
+git commit -m "$(cat <<'EOF'
+stage-1f(t5): catalog drift gate
+
+- test_live_catalog_matches_checked_in_baseline: byte-for-byte diff of
+  live catalog against checked-in golden file; failure embeds the
+  unified diff + the literal --update-catalog-baseline regeneration
+  command.
+- test_drift_failure_message_carries_regeneration_command: meta-test
+  proving the failure UX includes the regeneration hint.
+- test_rebaseline_flag_round_trip_idempotent: catches nondeterminism
+  in build_capability_catalog by asserting two consecutive to_json
+  calls produce identical bytes.
+
+Tests: T1 7 + T2 8 + T3 7 + T4 6+1SKIP + T5 3 = 32 collected (31 PASS, 1 SKIP).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T5
+```
+
+Then update parent ledger (separate commit, same pattern).
+
+---
+
+### Task 6: `__init__.py` re-export + integration smoke + ledger close + ff-merge + parent merge + tag
+
+**Files:**
+- Modify: `vendor/serena/src/serena/refactoring/__init__.py` (re-export Stage 1F surface).
+- Modify: `docs/superpowers/plans/stage-1f-results/PROGRESS.md` (close ledger).
+- Tag (submodule): `stage-1f-capability-catalog-complete`.
+- Tag (parent): `stage-1f-capability-catalog-complete`.
+
+- [ ] **Step 1: Write failing test — Stage 1F surface is re-exported from `serena.refactoring`**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1f_t6_init_reexports.py`:
+
+```python
+"""T6 — Stage 1F symbols re-exported from serena.refactoring."""
+
+from __future__ import annotations
+
+
+def test_capability_record_reexported() -> None:
+    from serena.refactoring import CapabilityRecord  # noqa: F401
+
+
+def test_capability_catalog_reexported() -> None:
+    from serena.refactoring import CapabilityCatalog  # noqa: F401
+
+
+def test_build_capability_catalog_reexported() -> None:
+    from serena.refactoring import build_capability_catalog  # noqa: F401
+
+
+def test_catalog_introspection_error_reexported() -> None:
+    from serena.refactoring import CatalogIntrospectionError  # noqa: F401
+
+
+def test_smoke_build_catalog_via_top_level_import() -> None:
+    from serena.refactoring import STRATEGY_REGISTRY, build_capability_catalog
+
+    cat = build_capability_catalog(STRATEGY_REGISTRY)
+    assert len(cat.records) == 13  # 7 python + 6 rust per Stage 1E
+    languages = sorted({r.language for r in cat.records})
+    assert languages == ["python", "rust"]
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t6_init_reexports.py -v
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Expected: 4 of 5 fail with `ImportError: cannot import name 'CapabilityRecord' from 'serena.refactoring'` (and friends).
+
+- [ ] **Step 3: Add Stage 1F re-exports to `__init__.py`**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/refactoring/__init__.py`. Add the import block (insert after the existing `from .multi_server import (...)` block and before `from .python_strategy import (...)`):
+
+```python
+from .capabilities import (
+    CapabilityCatalog,
+    CapabilityRecord,
+    CatalogIntrospectionError,
+    build_capability_catalog,
+)
+```
+
+Extend the `__all__` list — insert these four entries in their alphabetically-correct positions (matching the existing sorted order):
+
+```python
+    "CapabilityCatalog",
+    "CapabilityRecord",
+    "CatalogIntrospectionError",
+    "build_capability_catalog",
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t6_init_reexports.py -v
+```
+
+Expected: 5/5 PASS.
+
+- [ ] **Step 5: Run the FULL Stage 1F suite + Stage 1E suite + spike suite (regression gate)**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest vendor/serena/test/spikes/ -v 2>&1 | tail -40
+```
+
+Expected: 356 (Stage 1E green count) + 32 (Stage 1F: 7+8+7+7+3) = 388 collected; ≥387 PASS, ≤1 SKIP (T4's gated regeneration test). If any pre-Stage-1F test regresses, STOP — Stage 1F has touched something it should not have. The only Stage 1E files Stage 1F modifies are `__init__.py` (re-exports only — additive) and `conftest.py` (additive — new fixture + CLI option; no existing fixture renamed or removed).
+
+- [ ] **Step 6: Commit T6 code change**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/refactoring/__init__.py \
+        test/spikes/test_stage_1f_t6_init_reexports.py
+git commit -m "$(cat <<'EOF'
+stage-1f(t6): re-export Stage 1F surface from serena.refactoring
+
+- CapabilityRecord
+- CapabilityCatalog
+- CatalogIntrospectionError
+- build_capability_catalog
+
+Tests: full spike suite 388/388 (≥387 PASS, 1 gated regen SKIP).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T6
+```
+
+- [ ] **Step 7: Close the PROGRESS ledger**
+
+Edit `/Volumes/Unitek-B/Projects/o2-scalpel/docs/superpowers/plans/stage-1f-results/PROGRESS.md`:
+- Fill row T6 with the SHA + outcome=GREEN + follow-ups.
+- Add a `## Exit summary` section at the bottom:
+
+```markdown
+## Exit summary
+
+- Stage 1F complete 2026-04-25.
+- Production LoC: ~205 (capabilities.py 200 + __init__.py +5).
+- Test LoC: ~420 across 6 files.
+- Data file: capability_catalog_baseline.json (13 records, ~3 KB).
+- Submodule tag: stage-1f-capability-catalog-complete.
+- Parent tag: stage-1f-capability-catalog-complete.
+- Spike-suite: 388/388 collected (≥387 PASS, 1 gated regen SKIP).
+- Stage 1G entry baseline: this exit SHA.
+```
+
+Commit:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add docs/superpowers/plans/stage-1f-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1f(t6): close ledger + Stage 1G entry approval
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+- [ ] **Step 8: Submodule ff-merge to `main` + tag**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git checkout main
+git pull --ff-only origin main
+git merge --ff-only feature/stage-1f-capability-catalog
+git tag -a stage-1f-capability-catalog-complete -m "Stage 1F: capability catalog + drift CI"
+git push origin main
+git push origin stage-1f-capability-catalog-complete
+git rev-parse HEAD  # capture submodule main tip post-merge
+```
+
+Expected: ff-merge succeeds (no merge commit). Tag created and pushed.
+
+- [ ] **Step 9: Parent — bump submodule pointer + merge feature branch into `develop` + tag**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+# Switch parent to the implementation branch (not the planning branch).
+git checkout -B feature/stage-1f-capability-catalog
+# Bump submodule pointer to the just-pushed main tip.
+git add vendor/serena
+git commit -m "$(cat <<'EOF'
+stage-1f: bump vendor/serena submodule to Stage 1F main tip
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+# git-flow finish into develop.
+git checkout develop
+git pull --ff-only origin develop
+git flow feature finish stage-1f-capability-catalog
+git tag -a stage-1f-capability-catalog-complete -m "Stage 1F: capability catalog + drift CI (parent)"
+git push origin develop
+git push origin stage-1f-capability-catalog-complete
+git rev-parse HEAD  # parent develop tip
+```
+
+Expected: develop ff-merges; tag pushed.
+
+- [ ] **Step 10: Update memory note**
+
+Append to `/Users/alexanderfedin/.claude/projects/-Volumes-Unitek-B-Projects-o2-scalpel/memory/MEMORY.md`:
+```
+- [Stage 1F complete](project_stage_1f_complete.md) — Capability catalog + drift CI landed 2026-04-25; tag `stage-1f-capability-catalog-complete`; 388/388 collected (≥387 PASS, 1 gated regen SKIP)
+```
+
+Then create the referenced detail note `project_stage_1f_complete.md` with: file inventory, LoC actuals, test count, submodule + parent SHAs, baseline cardinality (13 records), deferred items routed to Stage 1G (`scalpel_capabilities_list` + `scalpel_capability_describe` MCP tools).
+
+- [ ] **Step 11: Final smoke — green start of Stage 1G**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git rev-parse HEAD                            # parent develop tip after merge
+git -C vendor/serena rev-parse HEAD           # submodule main tip after merge
+git -C vendor/serena tag -l 'stage-1f-capability-catalog-complete'
+git tag -l 'stage-1f-capability-catalog-complete'
+PATH="$(pwd)/vendor/serena/.venv/bin:$PATH" \
+  vendor/serena/.venv/bin/pytest \
+  vendor/serena/test/spikes/test_stage_1f_t5_catalog_drift.py -v
+```
+
+Expected: both tags print, both HEADs match the post-merge SHAs, parent's `vendor/serena` pointer matches the submodule HEAD, drift gate green. Stage 1F is closed.
+
+---
+
+## Self-review checklist
+
+Before declaring this plan ready for execution, walk through every item below. Each is a yes/no check; any "no" requires patching the plan before handing it off.
+
+### A. Spec coverage — every Stage 1F scope element has at least one task
+
+- [x] §14.1 file 15 (`capabilities.py`, ~200 LoC) — **T1** schema + **T2** strategy walk + **T3** adapter introspection.
+- [x] Catalog schema (pydantic v2) `CapabilityRecord(id, language, kind, source_server, params_schema, ...)` — **T1**.
+- [x] Catalog factory exposing `build_capability_catalog()` — **T2** + **T3**.
+- [x] Drift CI assertion (live vs. golden, fail on diff with regeneration hint) — **T5**.
+- [x] Golden-file baseline checked in — **T4** generates `capability_catalog_baseline.json`.
+- [x] `pytest --update-catalog-baseline` UX — **T4** (CLI flag) + **T5** (gate respects flag).
+- [x] Fixtures + tests for the drift detector — **T4** baseline round-trip + **T5** drift gate.
+- [x] `__init__.py` re-export — **T6** step 3.
+
+### B. Stage 1E hand-off honored — every consumed Stage 1E surface is intact
+
+- [x] `STRATEGY_REGISTRY` consumed in T2 step 3 + T6 step 1 (matches `refactoring/__init__.py:48` upstream).
+- [x] `LanguageStrategy.code_action_allow_list` consumed in T2 + T3 (matches `language_strategy.py:42` upstream).
+- [x] `LanguageStrategy.extension_allow_list` consumed in T2 + T3 (matches `language_strategy.py:41`).
+- [x] `LanguageStrategy.language_id` consumed in T2 + T3 (matches `language_strategy.py:40`).
+- [x] `ProvenanceLiteral` typed re-import in T1 step 3 (matches `multi_server.py:25-32`).
+- [x] Adapter `_get_initialize_params` static introspection — T0 step 4 verifies the staticmethod invariant before T3 starts.
+- [x] No Stage 1E file is *modified* by Stage 1F except `__init__.py` (additive re-exports only) and `conftest.py` (additive — new fixture + CLI option, no rename / removal).
+
+### C. No placeholders / TODO / "similar to" / "appropriate error handling" / "etc."
+
+Run after T6:
+```bash
+grep -nE "TODO|TBD|FIXME|similar to|appropriate error handling|XXX" \
+  /Volumes/Unitek-B/Projects/o2-scalpel/docs/superpowers/plans/2026-04-24-stage-1f-capability-catalog.md
+```
+Expected: zero hits. If hits appear, replace each with the literal code/value.
+
+### D. Method signature consistency across tasks
+
+- [x] `CapabilityRecord(id, language, kind, source_server, params_schema, preferred_facade, extension_allow_list)` declared in T1 step 3; consumed verbatim in T2 step 3, T3 step 3, T4 step 4 generation path, T5 step 1.
+- [x] `CapabilityCatalog(records: tuple[CapabilityRecord, ...])` declared in T1 step 3; consumed in T2 step 3 + T3 step 3 + T4 step 4 + T5 step 1.
+- [x] `CapabilityCatalog.to_json() -> str` and `CapabilityCatalog.from_json(blob: str) -> CapabilityCatalog` declared in T1 step 3; T4 step 1 + T5 step 1 use them.
+- [x] `build_capability_catalog(strategy_registry, *, project_root=None) -> CapabilityCatalog` signature stable across T1 (stub), T2 (strategy walk), T3 (adapter overlay).
+- [x] `_introspect_adapter_kinds(adapter_cls, *, repository_absolute_path: str) -> frozenset[str]` declared in T3 step 3; called in T3 step 1 tests + T3 step 3 factory body.
+- [x] `CatalogIntrospectionError` declared in T3 step 3; raised in T3 step 3 helper; asserted in T3 step 1 test 5 + T6 step 1 re-export test.
+- [x] `capability_catalog_baseline_path` fixture declared in T4 step 3; consumed in T4 step 1 + T5 step 1 + T6 step 5.
+- [x] `update_catalog_baseline_requested` fixture declared in T4 step 3; consumed in T4 step 4 + T5 step 1.
+- [x] `--update-catalog-baseline` CLI flag declared in T4 step 3; documented at every gate failure (T5 `_REBASELINE_HINT`).
+
+### E. TDD ordering — every task has failing test BEFORE implementation
+
+- [x] **T0** is bootstrap (no test); **T1–T6 each** open with "Write failing test" step that runs the suite and confirms a red bar before any implementation step.
+- [x] Each task's implementation step explicitly references the test file from the failing-test step.
+- [x] Each task's final step re-runs the test to confirm green BEFORE the commit step.
+
+### F. Commit author trailer is `AI Hive(R)`, never `Claude`
+
+Run after T6:
+```bash
+git -C /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena log --since='2026-04-25' --pretty=%an%n%b | grep -iE 'claude|AI Hive'
+```
+Expected: every Co-Authored-By line is `AI Hive(R) <noreply@o2.services>`. Zero `Claude` mentions.
+
+### G. Submodule git-flow correctly applied at T6
+
+- [x] T6 step 8 ff-merges `feature/stage-1f-capability-catalog` into submodule `main` and tags.
+- [x] T6 step 9 bumps the parent's submodule pointer, merges into parent `develop` via `git flow feature finish`, and tags at parent level.
+- [x] No `--force` pushes anywhere.
+- [x] Tag name `stage-1f-capability-catalog-complete` matches the Stage 1A–1E naming pattern.
+
+### H. Hard constraints reaffirmed (cross-check)
+
+| Constraint | Source | Enforced at |
+|---|---|---|
+| `CapabilityRecord.source_server` ∈ `ProvenanceLiteral` | §11.6 | T1 step 1 test 3 + T1 step 3 type annotation |
+| Records sorted by `(language, source_server, kind, id)` | Drift-stable JSON convention | T1 step 3 `model_post_init` + T1 step 1 test 5 + T4 step 1 test 5 |
+| Trailing newline on JSON output | POSIX text-file rule | T1 step 3 `to_json` + T1 step 1 test 6 |
+| Drift gate failure includes regeneration command | Drift gate UX convention | T5 `_REBASELINE_HINT` literal + T5 step 1 test 2 |
+| No live LSP spawn in Stage 1F tests | Stage 1F tech-stack rule | T0 step 4 staticmethod check + T3 step 1 test 5 negative-case |
+| Pure additive change to `__init__.py` + `conftest.py` | Stage 1E hand-off | T6 step 5 regression check (388/388) |
+
+### I. LoC budget within bounds
+
+| File | Planned LoC | Notes |
+|---|---|---|
+| `capabilities.py` | ~200 | T1 schema (~80) + T2 factory (~50) + T3 introspection helper + adapter map + enriched factory (~70) ≈ 200. **On budget.** |
+| `__init__.py` (delta) | ~5 | T6 adds 4 names + 1 import block ≈ 5 lines. **On budget.** |
+| `conftest.py` (delta) | ~25 | T4 step 3 ≈ 25 lines (CLI option + 2 fixtures). **On budget.** |
+| `data/capability_catalog_baseline.json` | data file | 13 records ≈ 3 KB JSON; not LoC-counted. |
+| **Production total** | ~205 | Matches §14.1 row 15 budget exactly. |
+| **Test total** | ~420 | T1 70 + T2 110 + T3 90 + T4 80 + T5 90 + T6 30 ≈ 470 (slightly over the rough 420 estimate; acceptable — TDD coverage). |
+
+### J. Open questions for orchestrator
+
+1. **`preferred_facade` left as `None` everywhere at MVP exit.** Stage 2A is when ergonomic facades land and the field gets populated. Confirm this is the intended split — alternative is a Stage 1F follow-up that reads facade names from a manual mapping file (rejected here as YAGNI).
+2. **`applies_to_kinds` field omitted** (per §12.1 `CapabilityDescriptor`). Symbol-kind taxonomy is not built at MVP. Confirm the catalog schema may grow this field in Stage 2A without a major version bump (would require re-baselining + bumping `schema_version` in `to_json`).
+3. **13-record baseline cardinality** is exactly `len(PythonStrategy.code_action_allow_list) + len(RustStrategy.code_action_allow_list)`. If Stage 1G discovers it needs to surface adapter-only kinds (kinds advertised by ruff but NOT in `PythonStrategyExtensions.CODE_ACTION_ALLOW_LIST`), the factory needs a UNION step instead of an INTERSECTION. Plan currently does INTERSECTION (kinds must be in the strategy whitelist to appear in the catalog). Confirm this is correct — alternative changes T3 step 3 factory body to also iterate adapter-introspected kinds and union them in.
+4. **`_introspect_adapter_kinds` passes `/tmp/_stage_1f_introspect`** as the repository path. All four Stage 1E adapters' `_get_initialize_params` are path-independent for the codeAction surface, but a future adapter that varies its advertised kinds by repository (e.g. detects a config file) would need a real path. Plan does not handle this — flag for Stage 1G review if such an adapter lands.
+5. **Memory note creation in T6 step 10** writes to the user-level memory directory. Confirm the parent agent has write permission to `~/.claude/projects/.../memory/`; if not, drop step 10 and route the note via the parent agent's hand-off message instead.
+
+---
+
+## Author
+
+AI Hive(R) — `noreply@o2.services`. Plan drafted 2026-04-25.
+
+
+
 
 
