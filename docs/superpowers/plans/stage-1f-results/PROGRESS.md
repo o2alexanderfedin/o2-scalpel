@@ -13,7 +13,7 @@ Built on: stage-1e-python-strategies-complete
 | T3 | capabilities.py — _introspect_adapter_kinds()             | 09bb7a27 | GREEN (21/21) | — |
 | T4 | golden-file baseline + --update-catalog-baseline plumbing | df9e4437 | GREEN (27/27 PASS, 1 SKIP) | — |
 | T5 | drift gate test (test_stage_1f_t5_catalog_drift.py)       | 50e60403 | GREEN (30/30 PASS, 1 SKIP) | — |
-| T6 | __init__.py registry + smoke + ledger close + ff-merge    | _pending_ | _pending_ | — |
+| T6 | __init__.py registry + smoke + ledger close + ff-merge    | 8b6cae51 | GREEN (5/5; full spike suite 391/391 PASS + 1 SKIP) | — |
 
 ## Decisions log
 
@@ -34,3 +34,33 @@ Built on: stage-1e-python-strategies-complete
 - §12.3 catalog drift test — Stage 1F implements this exactly: live introspection vs. checked-in JSON, fail on diff, regenerate via CLI flag.
 - §14.1 row 15 — file budget `+200 LoC` for `capabilities.py`. Stage 1F holds within this.
 - §11.6 `ProvenanceLiteral` — closed set used as `CapabilityRecord.source_server` Literal type.
+
+## Exit summary
+
+- Stage 1F complete 2026-04-25.
+- Production LoC: capabilities.py 275, __init__.py +10, conftest.py +39 = 324 total (slightly over the ~205 budget; capabilities.py grew with adapter map + introspection helper docstrings — within acceptable margin).
+- Test LoC: ~520 across 6 spike test files.
+- Data file: capability_catalog_baseline.json (13 records — 7 Python + 6 Rust, ~3.5 KB).
+- Submodule tag: stage-1f-capability-catalog-complete.
+- Parent tag: stage-1f-capability-catalog-complete.
+- Spike-suite: 392 collected (391 PASS, 1 SKIP — the gated regeneration test).
+- Stage 1G entry baseline: this exit SHA.
+
+### Per-task test breakdown
+
+| Task | New tests | Suite total after task |
+|---|---|---|
+| T1 | 7 | 7 |
+| T2 | 8 | 15 |
+| T3 | 6 | 21 |
+| T4 | 6 + 1 SKIP | 28 (27 PASS, 1 SKIP) |
+| T5 | 3 | 31 (30 PASS, 1 SKIP) |
+| T6 | 5 | 36 (35 PASS, 1 SKIP) |
+
+### Deferred items routed forward
+
+- `scalpel_capabilities_list` + `scalpel_capability_describe` MCP tools — **Stage 1G** (consumes `build_capability_catalog`).
+- `preferred_facade` field population — **Stage 2A** when ergonomic facades land.
+- `applies_to_kinds` field — **Stage 2A** when symbol-kind taxonomy lands; will require schema_version bump + re-baseline.
+- Live-LSP catalog cross-check — **Stage 1H** integration tests against live `calcrs` + `calcpy` fixtures.
+- Plugin/skill code-generator (`o2-scalpel-newplugin`) — **Stage 1J** consumes the catalog.
