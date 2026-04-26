@@ -12,7 +12,7 @@
 | T7 | cb09c51a4408c160e38bf08eb0baa478cef5a926 | DONE | scalpel_imports_organize |
 | T8 | b0c79041f306d001379bd8dcf5f56958ca86f85f | DONE | scalpel_transaction_commit + TransactionStore.steps/expires_at |
 | T9 | ad2930334aa602b7491a2f856c8d7b9ffe740f05 | DONE | Q4 boundary integration matrix |
-| T10 | | | |
+| T10 | f9c7134509212104d84c8a9086ebcbd56312ce4a | DONE | registry + Stage 1G T9 EXPECTED_NAMES extension |
 | T11 | | | |
 
 ## Entry baseline
