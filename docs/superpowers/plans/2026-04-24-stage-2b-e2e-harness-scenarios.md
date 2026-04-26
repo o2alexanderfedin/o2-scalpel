@@ -2131,3 +2131,367 @@ Co-Authored-By: AI Hive(R) <noreply@o2.services>"
 Update PROGRESS T7 row to `OUTCOME=DONE`.
 
 ---
+
+### Task 8: E2E scenario E11 — workspace-boundary refusal
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e11_workspace_boundary.py`
+
+**Scope:** Drives a refactor that *would* emit a `WorkspaceEdit` containing a path under `~/.cargo/registry/...` (or any out-of-workspace location) — assert the entire `WorkspaceEdit` is rejected atomically with `error_code = "OUT_OF_WORKSPACE_EDIT_BLOCKED"`, no on-disk file is modified, and `failure.details["rejected_paths"]` lists the offending path. Per scope-report §11.8, the path filter is independent of the `OutsideWorkspace` annotation.
+
+The scenario uses `ScalpelDryRunComposeTool` with a hand-crafted step list that targets an out-of-workspace path directly, to make the test deterministic without depending on a specific RA-emitted SSR result. (E11 in scope-report §15.1 is "workspace-boundary refusal"; the integration tests in T12 cover the three Q4 sub-cases independently.)
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_e2e_e11_workspace_boundary.py`:
+
+```python
+"""E2E scenario E11 — workspace-boundary refusal.
+
+Maps to scope-report §15.1 row E11 (renumbered) and §11.8 (path-filter
+contract). The atomic-rejection rule: a single out-of-workspace path in
+`documentChanges` must reject the entire WorkspaceEdit; no in-workspace
+file is touched.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+def _file_sha(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else ""
+
+
+@pytest.mark.e2e
+def test_e11_split_to_outside_workspace_path_rejected(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    tmp_path: Path,
+    wall_clock_record,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    pre_sha = _file_sha(src)
+
+    # Ask the split facade to move a symbol into a target file that lives
+    # OUTSIDE the project root (under tmp_path/outside_workspace/...).
+    # The Stage 2A workspace_boundary_guard runs before any LSP traffic;
+    # this drives the synchronous reject path.
+    outside_target = tmp_path / "outside_workspace" / "ast.py"
+    outside_target.parent.mkdir(parents=True, exist_ok=True)
+
+    result_json = mcp_driver_python.split_file(
+        file=str(src),
+        groups={str(outside_target): ["Num"]},
+        parent_layout="file",
+        dry_run=False,
+        language="python",
+        allow_out_of_workspace=False,  # explicit safe default
+    )
+    result = RefactorResult.model_validate_json(result_json)
+
+    assert result.applied is False, "out-of-workspace split must NOT apply"
+    assert result.failure is not None
+    assert result.failure.code == "OUT_OF_WORKSPACE_EDIT_BLOCKED", (
+        f"expected OUT_OF_WORKSPACE_EDIT_BLOCKED; got {result.failure.code!r}"
+    )
+    rejected = result.failure.details.get("rejected_paths") or []
+    assert any(str(outside_target) in p for p in rejected), (
+        f"rejected_paths missing the out-of-workspace target: {rejected}"
+    )
+    # No in-workspace file mutated.
+    assert _file_sha(src) == pre_sha, "in-workspace file was modified despite reject"
+    # No on-disk write to the outside path either (atomic reject).
+    assert not (outside_target.exists() and outside_target.stat().st_size > 0)
+
+
+@pytest.mark.e2e
+def test_e11_allow_out_of_workspace_true_bypasses_filter(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    tmp_path: Path,
+) -> None:
+    """Per §11.9: setting allow_out_of_workspace=True is the explicit
+    permission trigger. The path filter is skipped — but the harness'
+    standard tool-permission UI fires. This test asserts only that the
+    facade accepts the override (downstream Rope may still fail on the
+    target, which is fine; we're testing the gate, not the move).
+    """
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    outside_target = tmp_path / "outside_workspace_ok" / "ast.py"
+    outside_target.parent.mkdir(parents=True, exist_ok=True)
+
+    result_json = mcp_driver_python.split_file(
+        file=str(src),
+        groups={str(outside_target): ["Num"]},
+        parent_layout="file",
+        dry_run=True,  # dry-run so we don't actually mutate $HOME
+        language="python",
+        allow_out_of_workspace=True,
+    )
+    result = RefactorResult.model_validate_json(result_json)
+
+    # The boundary guard MUST NOT have fired with allow_out_of_workspace=True.
+    if result.failure is not None:
+        assert result.failure.code != "OUT_OF_WORKSPACE_EDIT_BLOCKED", (
+            f"allow_out_of_workspace=True still triggered the boundary filter: "
+            f"{result.failure}"
+        )
+```
+
+- [ ] **Step 2: Run the test**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_e11_workspace_boundary.py -v -m e2e --tb=short
+```
+
+Expected: 2 PASSED in ~10–30 s (no LSP traffic on the reject path; the allow-path goes to dry-run only).
+
+If `result.failure.code != "OUT_OF_WORKSPACE_EDIT_BLOCKED"` FAILs:
+- Stage 2A `workspace_boundary_guard` is not running before the LSP traffic. Verify `facade_support.py:workspace_boundary_guard()` is the first call in every facade body (per Stage 2A T2).
+
+- [ ] **Step 3: Commit T8**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e11_workspace_boundary.py
+git commit -m "test(stage-2b): T8 — E11 workspace-boundary refusal (atomic reject)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T8 — bump submodule (E11 scenario)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T8 row to `OUTCOME=DONE`.
+
+---
+
+### Task 9: E2E scenario E12 — transaction commit + rollback round-trip
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e12_transaction_commit_rollback.py`
+
+**Scope:** Composes a 3-step transaction (split → extract → rename) via `ScalpelDryRunComposeTool`, captures the `transaction_id`, calls `ScalpelTransactionCommitTool` to apply all 3 atomically, verifies per-step `checkpoint_id`s in `TransactionResult.per_step`, then calls `ScalpelTransactionRollbackTool` to revert all 3 in reverse order. Asserts the final tree is byte-identical to pre-transaction.
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_e2e_e12_transaction_commit_rollback.py`:
+
+```python
+"""E2E scenario E12 — transaction commit + rollback round-trip.
+
+Maps to scope-report §15.1 row E12: "Inline function across multiple
+call-sites; verify diagnostics-delta + checkpoint replay" — generalized to
+the 3-tool transaction grammar (compose / commit / rollback) per Q2.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult, TransactionResult
+
+
+def _tree_hash(root: Path) -> str:
+    h = hashlib.sha256()
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root).as_posix()
+        if rel.startswith("__pycache__/") or "__pycache__/" in rel:
+            continue
+        if rel.endswith(".pyc"):
+            continue
+        h.update(rel.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(p.read_bytes())
+        h.update(b"\x01")
+    return h.hexdigest()
+
+
+@pytest.mark.e2e
+def test_e12_transaction_commit_then_rollback_round_trip(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    pre_hash = _tree_hash(calcpy_e2e_root)
+
+    # 1. Compose a 3-step transaction in dry-run mode (returns transaction_id).
+    compose_json = mcp_driver_python.dry_run_compose(steps=[
+        {
+            "tool": "scalpel_split_file",
+            "args": {
+                "file": str(src),
+                "groups": {"ast": ["Num"], "errors": ["CalcError"]},
+                "parent_layout": "file",
+                "language": "python",
+            },
+        },
+        {
+            "tool": "scalpel_extract",
+            "args": {
+                "file": str(src),
+                "name_path": "evaluate",
+                "target": "function",
+                "new_name": "_helper",
+                "language": "python",
+            },
+        },
+        {
+            "tool": "scalpel_rename",
+            "args": {
+                "file": str(src),
+                "name_path": "parse",
+                "new_name": "parse_text",
+                "language": "python",
+            },
+        },
+    ])
+    compose = json.loads(compose_json)
+    transaction_id = compose["transaction_id"]
+    assert transaction_id.startswith("txn_"), (
+        f"compose did not return a txn_ id: {compose}"
+    )
+    # On-disk byte-identity preserved by dry-run compose.
+    assert _tree_hash(calcpy_e2e_root) == pre_hash
+
+    # 2. Commit the transaction — applies all 3 atomically.
+    commit_json = mcp_driver_python.transaction_commit(transaction_id=transaction_id)
+    commit = TransactionResult.model_validate_json(commit_json)
+    assert commit.transaction_id == transaction_id
+    assert commit.rolled_back is False
+    assert len(commit.per_step) == 3, (
+        f"expected 3 per-step results; got {len(commit.per_step)}"
+    )
+    for idx, step in enumerate(commit.per_step):
+        assert step.applied is True, f"step {idx} did not apply: {step}"
+        assert step.checkpoint_id is not None and step.checkpoint_id.startswith(
+            "ckpt_"
+        ), f"step {idx} missing checkpoint_id: {step}"
+    # Aggregated diagnostics-delta exists.
+    assert commit.aggregated_diagnostics_delta is not None
+    # Tree differs from baseline now.
+    mid_hash = _tree_hash(calcpy_e2e_root)
+    assert mid_hash != pre_hash, "transaction commit did not modify the tree"
+
+    # 3. Roll back the transaction — reverses all 3 in reverse order.
+    rollback_json = mcp_driver_python.transaction_rollback(
+        transaction_id=transaction_id
+    )
+    rollback = TransactionResult.model_validate_json(rollback_json)
+    assert rollback.rolled_back is True
+    assert len(rollback.per_step) == 3
+    for idx, step in enumerate(rollback.per_step):
+        assert step.applied is True, f"rollback step {idx} did not apply: {step}"
+
+    # Byte-identity restored.
+    post_hash = _tree_hash(calcpy_e2e_root)
+    assert post_hash == pre_hash, (
+        f"transaction rollback did not restore the tree:\n"
+        f"  pre  = {pre_hash}\n"
+        f"  mid  = {mid_hash}\n"
+        f"  post = {post_hash}"
+    )
+
+
+@pytest.mark.e2e
+def test_e12_inline_round_trip_with_checkpoint_replay(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    """Original E12 spec: inline a function across all call-sites and verify
+    the per-step checkpoint replay. Single-tool path, no transaction grammar.
+    """
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    pre_text = src.read_text(encoding="utf-8")
+
+    # First, extract a helper so there is something to inline.
+    extract_json = mcp_driver_python.extract(
+        file=str(src),
+        name_path="evaluate",
+        target="function",
+        new_name="_dispatch",
+        dry_run=False,
+        language="python",
+    )
+    extract = RefactorResult.model_validate_json(extract_json)
+    assert extract.applied is True
+    extract_ckpt = extract.checkpoint_id
+
+    # Inline it back at all call-sites with `scope=all_callers`.
+    inline_json = mcp_driver_python.inline(
+        file=str(src),
+        name_path="_dispatch",
+        target="call",
+        scope="all_callers",
+        remove_definition=True,
+        dry_run=False,
+        language="python",
+    )
+    inline = RefactorResult.model_validate_json(inline_json)
+    assert inline.applied is True, f"inline failed: {inline_json}"
+    assert inline.diagnostics_delta is not None
+
+    # Replay the extract checkpoint to confirm checkpoint store survived
+    # the intervening inline.
+    replay_json = mcp_driver_python.rollback(checkpoint_id=extract_ckpt)
+    replay = RefactorResult.model_validate_json(replay_json)
+    # Replay is a noop iff the inline already restored the pre-extract
+    # state byte-for-byte (it should, since inline was the inverse of
+    # extract for this fixture). Either applied=True (rolled-back) or
+    # no_op=True is acceptable per §15 checkpoint contract.
+    assert replay.applied is True or replay.no_op is True, (
+        f"checkpoint replay returned unexpected result: {replay_json}"
+    )
+```
+
+- [ ] **Step 2: Run the test**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_e12_transaction_commit_rollback.py -v -m e2e --tb=short
+```
+
+Expected: 2 PASSED in ~1–3 min.
+
+If `post_hash != pre_hash` FAILs:
+- The transaction-rollback inverse-edit chain has a gap. Print `commit.per_step[idx].diff` and `rollback.per_step[idx].diff` for each idx and inspect the asymmetry. Most-likely culprits: `CreateFile` ↔ `DeleteFile` ordering on `__init__.py` re-export or a stale `parse` reference outside `calcpy/`.
+
+- [ ] **Step 3: Commit T9**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e12_transaction_commit_rollback.py
+git commit -m "test(stage-2b): T9 — E12 transaction commit + rollback round-trip + inline replay
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T9 — bump submodule (E12 scenario)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T9 row to `OUTCOME=DONE`.
+
+---
