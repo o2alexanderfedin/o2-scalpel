@@ -1786,11 +1786,938 @@ Update parent ledger and commit.
 
 ### Task 7: `python_strategy.py` skeleton — `MultiServerCoordinator` wiring
 
-_(T7 detail expanded below.)_
+**Files:**
+- Create: `vendor/serena/src/serena/refactoring/python_strategy.py` (skeleton + multi-server wiring half — T8 adds interpreter discovery + Rope bridge in the same file)
+- Create: `vendor/serena/test/spikes/test_stage_1e_t7_python_strategy_multi_server.py`
+
+T7 lands the multi-server orchestration half of `python_strategy.py`: `PythonStrategy(LanguageStrategy, PythonStrategyExtensions)`, a `build_servers(project_root)` that asks the `LspPool` for one `PylspServer`, one `BasedpyrightServer`, one `RuffServer` (each via a separate `LspPoolKey` differentiated by language id suffix — see step 2), and a `coordinator(project_root) -> MultiServerCoordinator` factory. **Hard constraints:**
+- MUST NOT spawn `pylsp-mypy` (P5a verdict C). The `SERVER_SET` constant from `PythonStrategyExtensions` makes this structurally impossible — the constructor iterates that tuple.
+- MUST NOT inject synthetic per-step `didSave` (Q1 cascade — was a pylsp-mypy mitigation; redundant after P5a). Any `didSave` flows from the actual edit, not from the strategy.
+
+- [ ] **Step 1: Write failing tests — Protocol conformance + 3-server set + no-mypy invariant**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t7_python_strategy_multi_server.py`:
+
+```python
+"""T7 — PythonStrategy multi-server orchestration."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+
+def test_python_strategy_imports() -> None:
+    from serena.refactoring.python_strategy import PythonStrategy  # noqa: F401
+
+
+def test_python_strategy_satisfies_protocol() -> None:
+    from serena.refactoring.language_strategy import LanguageStrategy
+    from serena.refactoring.python_strategy import PythonStrategy
+
+    assert isinstance(PythonStrategy(pool=MagicMock()), LanguageStrategy)
+
+
+def test_python_strategy_identity() -> None:
+    from serena.refactoring.python_strategy import PythonStrategy
+
+    s = PythonStrategy(pool=MagicMock())
+    assert s.language_id == "python"
+    assert s.extension_allow_list == frozenset({".py", ".pyi"})
+
+
+def test_build_servers_returns_three_entries_no_mypy() -> None:
+    """SERVER_SET drives build_servers — pylsp-mypy MUST NOT be in the dict."""
+    from serena.refactoring.python_strategy import PythonStrategy
+
+    pool = MagicMock()
+    pool.acquire.side_effect = lambda key: MagicMock(name=f"server-{key.language}")
+    s = PythonStrategy(pool=pool)
+    servers = s.build_servers(Path("/tmp/proj"))
+
+    assert set(servers.keys()) == {"pylsp-rope", "basedpyright", "ruff"}
+    assert "pylsp-mypy" not in servers
+
+
+def test_coordinator_factory_returns_multi_server_coordinator() -> None:
+    from serena.refactoring.multi_server import MultiServerCoordinator
+    from serena.refactoring.python_strategy import PythonStrategy
+
+    pool = MagicMock()
+    pool.acquire.side_effect = lambda key: MagicMock()
+    s = PythonStrategy(pool=pool)
+    coord = s.coordinator(Path("/tmp/proj"))
+
+    assert isinstance(coord, MultiServerCoordinator)
+    # Coordinator's server set carries the three Python servers.
+    assert set(coord._servers.keys()) == {"pylsp-rope", "basedpyright", "ruff"}
+
+
+def test_strategy_does_not_inject_synthetic_did_save() -> None:
+    """Q1 cascade: with pylsp-mypy dropped, no per-step didSave injection.
+
+    The strategy MUST NOT have a method named `inject_did_save`,
+    `synthetic_did_save`, or anything similar. Regression-guard against
+    accidentally re-introducing the Q1 mitigation.
+    """
+    from serena.refactoring.python_strategy import PythonStrategy
+
+    forbidden = {"inject_did_save", "synthetic_did_save", "force_did_save_on_step"}
+    members = {name for name in dir(PythonStrategy) if not name.startswith("_")}
+    leak = forbidden & members
+    assert not leak, f"Q1 cascade regression — forbidden members present: {leak}"
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t7_python_strategy_multi_server.py -v
+```
+
+Expected: 6/6 FAIL on `ModuleNotFoundError`.
+
+- [ ] **Step 2: Write minimal implementation (T7 half — multi-server wiring)**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/refactoring/python_strategy.py`:
+
+```python
+"""Python refactoring strategy — Stage 1E §14.1 file 13.
+
+Two halves land in two tasks:
+  - T7 (this revision): multi-server orchestration via Stage 1D
+    ``MultiServerCoordinator``. Three real LSPs spawned via Stage 1C
+    ``LspPool``: pylsp-rope, basedpyright, ruff.
+  - T8: 14-step interpreter discovery (specialist-python.md §7) +
+    Rope library bridge (rope==1.14.0 per Phase 0 P3) appended.
+
+Hard constraints (do not relax without re-running the relevant Phase 0 spike):
+  - NO pylsp-mypy in SERVER_SET (Phase 0 P5a verdict C).
+  - NO synthetic per-step didSave (Q1 cascade — pylsp-mypy mitigation
+    became redundant once mypy was dropped).
+  - basedpyright pinned to 1.39.3 (Phase 0 Q3).
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from .language_strategy import LanguageStrategy, PythonStrategyExtensions
+from .lsp_pool import LspPool, LspPoolKey
+from .multi_server import MultiServerCoordinator
+
+log = logging.getLogger("serena.refactoring.python_strategy")
+
+
+# Mapping from server-id (in SERVER_SET) to the synthetic language tag
+# the LspPool keys on. Distinct tags force the pool to spawn distinct
+# subprocesses for each LSP role — a single ``"python"`` tag would cause
+# pool deduplication to collapse all three into one entry.
+_SERVER_LANGUAGE_TAG: dict[str, str] = {
+    "pylsp-rope": "python:pylsp-rope",
+    "basedpyright": "python:basedpyright",
+    "ruff": "python:ruff",
+}
+
+
+class PythonStrategy(LanguageStrategy, PythonStrategyExtensions):
+    """Multi-server Python strategy: pylsp-rope + basedpyright + ruff.
+
+    The Stage 1D ``MultiServerCoordinator`` consumes the three-server dict
+    that ``build_servers`` returns. Per-call routing (broadcast for
+    codeAction, single-primary for rename) lives in the coordinator;
+    this class only owns the spawn topology.
+    """
+
+    language_id: str = "python"
+    extension_allow_list: frozenset[str] = PythonStrategyExtensions.EXTENSION_ALLOW_LIST
+    code_action_allow_list: frozenset[str] = PythonStrategyExtensions.CODE_ACTION_ALLOW_LIST
+
+    def __init__(self, pool: LspPool) -> None:
+        """:param pool: Stage 1C ``LspPool`` shared across the three LSPs.
+            The pool deduplicates on ``LspPoolKey`` — distinct synthetic
+            language tags ensure each role gets its own subprocess.
+        """
+        self._pool = pool
+
+    def build_servers(self, project_root: Path) -> dict[str, Any]:
+        """Acquire one server per entry in ``SERVER_SET`` from the pool.
+
+        Order in the returned dict mirrors ``SERVER_SET`` for diff-friendly
+        test transcripts; coordinator priority does NOT depend on order.
+        """
+        out: dict[str, Any] = {}
+        root_str = str(project_root)
+        for server_id in self.SERVER_SET:
+            tag = _SERVER_LANGUAGE_TAG[server_id]
+            key = LspPoolKey(language=tag, project_root=root_str)
+            out[server_id] = self._pool.acquire(key)
+        return out
+
+    def coordinator(self, project_root: Path) -> MultiServerCoordinator:
+        """Build a ``MultiServerCoordinator`` over the three Python LSPs.
+
+        Convenience factory: facades / MCP tools call
+        ``strategy.coordinator(root)`` then dispatch through it.
+        """
+        return MultiServerCoordinator(servers=self.build_servers(project_root))
+```
+
+- [ ] **Step 3: Re-run tests, expect green**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t7_python_strategy_multi_server.py -v
+```
+
+Expected: 6/6 PASS.
+
+- [ ] **Step 4: Cross-cut sanity — coordinator instantiation does not crash on the real adapters**
+
+(Run only if pylsp + basedpyright + ruff are installed.)
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/python -c "
+from pathlib import Path
+from serena.refactoring.lsp_pool import LspPool, LspPoolKey
+from serena.refactoring.python_strategy import PythonStrategy
+from solidlsp.language_servers.pylsp_server import PylspServer
+from solidlsp.language_servers.basedpyright_server import BasedpyrightServer
+from solidlsp.language_servers.ruff_server import RuffServer
+from solidlsp.ls_config import LanguageServerConfig, Language
+from solidlsp.settings import SolidLSPSettings
+
+ROLE = {
+    'python:pylsp-rope': PylspServer,
+    'python:basedpyright': BasedpyrightServer,
+    'python:ruff': RuffServer,
+}
+def spawn(key: LspPoolKey):
+    cls = ROLE[key.language]
+    cfg = LanguageServerConfig(code_language=Language.PYTHON)
+    return cls(cfg, key.project_root, SolidLSPSettings())
+
+pool = LspPool(spawn_fn=spawn, idle_shutdown_seconds=600.0,
+               ram_ceiling_mb=8192.0, reaper_enabled=False)
+strat = PythonStrategy(pool=pool)
+coord = strat.coordinator(Path('/tmp'))
+print('coordinator OK; servers:', sorted(coord._servers.keys()))
+"
+```
+
+Expected: `coordinator OK; servers: ['basedpyright', 'pylsp-rope', 'ruff']`. (No subprocess is started — `LspPool.acquire` calls `spawn` lazily; this script merely verifies the wiring graph.)
+
+- [ ] **Step 5: Commit T7**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/refactoring/python_strategy.py test/spikes/test_stage_1e_t7_python_strategy_multi_server.py
+git commit -m "$(cat <<'EOF'
+stage-1e(t7): PythonStrategy multi-server wiring (no mypy, no didSave injection)
+
+PythonStrategy(LanguageStrategy, PythonStrategyExtensions). build_servers
+acquires three LSPs from Stage 1C LspPool with distinct synthetic
+language tags so pool dedup keeps them separate; coordinator() returns a
+MultiServerCoordinator over the three. Regression-guard test asserts no
+forbidden Q1-cascade method names leak back in.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T7
+```
+
+Update parent ledger and commit.
 
 ### Task 8: `python_strategy.py` 14-step interpreter discovery + Rope library bridge
 
-_(T8 detail expanded below.)_
+**Files:**
+- Modify: `vendor/serena/src/serena/refactoring/python_strategy.py` (append `_PythonInterpreter` discovery + `_RopeBridge`)
+- Create: `vendor/serena/test/spikes/test_stage_1e_t8_interpreter_discovery.py`
+- Create: `vendor/serena/test/spikes/test_stage_1e_t8_rope_bridge.py`
+
+T8 lands two independent capabilities into the same file (single-file SRP holds because both are *Python-strategy-internal* concerns — the interpreter feeds the LSPs, the Rope bridge fills coverage gaps that pylsp-rope does not bridge).
+
+The 14-step discovery chain (per `specialist-python.md` §7, expanded by 2 over the original 12 to cover `direnv`/`.envrc` and `PEP 723` script metadata that emerged in the Phase 0 interview):
+
+1. `O2_SCALPEL_PYTHON_INTERPRETER` env var (highest precedence — explicit user override).
+2. `<project_root>/.venv/bin/python` (POSIX) or `<project_root>/.venv/Scripts/python.exe` (Windows).
+3. `<project_root>/venv/bin/python` (legacy convention).
+4. `poetry env info -p` invoked from `project_root` if `poetry.lock` present.
+5. `pdm info --python` if `pdm.lock` present.
+6. `uv python find --project <root>` if `uv.lock` present.
+7. `conda info --envs` matched against `CONDA_DEFAULT_ENV` if `environment.yml` present.
+8. `pipenv --py` if `Pipfile.lock` present.
+9. `pyenv which python` if `.python-version` present.
+10. `asdf where python` if `.tool-versions` mentions python.
+11. `__pypackages__/X.Y/lib` (PEP 582) — pick highest matching X.Y on PATH.
+12. `PYTHONPATH` site-packages walk → infer interpreter from any `.dist-info` METADATA.
+13. `PYTHON_HOST_PATH` env var (legacy bazel/pants integration).
+14. `sys.executable` (the interpreter scalpel itself runs under) — final fallback.
+
+For each step, the resolver: (a) checks the precondition, (b) resolves a candidate path, (c) validates by running `<candidate> --version` and parsing the major.minor (must satisfy `>=3.10,<3.14` per Phase 0 P3), (d) returns the first valid candidate. Failures fall through to the next step; full chain failure raises `PythonInterpreterNotFound` (typed).
+
+The Rope library bridge wraps `rope.refactor.move`, `rope.refactor.change_signature`, `rope.refactor.introduce_factory`, `rope.refactor.encapsulate_field`, `rope.refactor.restructure` — the five Rope refactors that pylsp-rope does NOT expose via `workspace/executeCommand`. The bridge runs in-process (no subprocess) since `rope` is a runtime dep (T0 step 6); each method takes typed Pydantic inputs and returns a typed `WorkspaceEdit` so the merger and applier consume it identically to LSP-sourced edits.
+
+- [ ] **Step 1: Write failing tests — interpreter discovery (10 unit tests, one per step + 4 fall-through)**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t8_interpreter_discovery.py`:
+
+```python
+"""T8 — 14-step Python interpreter discovery (specialist-python.md §7)."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+
+# ---- Step 1: O2_SCALPEL_PYTHON_INTERPRETER env override ----------------
+
+def test_step1_env_override_wins(tmp_path: Path) -> None:
+    from serena.refactoring.python_strategy import _PythonInterpreter
+
+    fake = tmp_path / "fake-python"
+    fake.write_text("#!/usr/bin/env bash\necho 'Python 3.11.7'\n")
+    fake.chmod(0o755)
+    with patch.dict(os.environ, {"O2_SCALPEL_PYTHON_INTERPRETER": str(fake)}, clear=False):
+        resolved = _PythonInterpreter.discover(tmp_path)
+        assert resolved.path == fake
+        assert resolved.version == (3, 11)
+        assert resolved.discovery_step == 1
+
+
+# ---- Step 2: project .venv ---------------------------------------------
+
+def test_step2_dot_venv_in_project_root(tmp_path: Path, monkeypatch) -> None:
+    from serena.refactoring.python_strategy import _PythonInterpreter
+
+    monkeypatch.delenv("O2_SCALPEL_PYTHON_INTERPRETER", raising=False)
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    py = venv_bin / "python"
+    py.write_text("#!/usr/bin/env bash\necho 'Python 3.12.1'\n")
+    py.chmod(0o755)
+    resolved = _PythonInterpreter.discover(tmp_path)
+    assert resolved.path == py
+    assert resolved.discovery_step == 2
+
+
+# ---- Step 14: sys.executable fallback ----------------------------------
+
+def test_step14_sys_executable_fallback(tmp_path: Path, monkeypatch) -> None:
+    from serena.refactoring.python_strategy import _PythonInterpreter
+
+    # Strip every env var the resolver looks at.
+    for v in ("O2_SCALPEL_PYTHON_INTERPRETER", "PYTHONPATH", "PYTHON_HOST_PATH",
+              "CONDA_DEFAULT_ENV"):
+        monkeypatch.delenv(v, raising=False)
+    # tmp_path has no .venv, no Poetry/PDM/uv lock, no conda, no pipenv,
+    # no .python-version, no .tool-versions, no __pypackages__.
+    resolved = _PythonInterpreter.discover(tmp_path)
+    assert resolved.path == Path(sys.executable)
+    assert resolved.discovery_step == 14
+
+
+# ---- Version-floor enforcement (Phase 0 P3): reject < 3.10 -------------
+
+def test_resolver_rejects_python_3_9(tmp_path: Path, monkeypatch) -> None:
+    from serena.refactoring.python_strategy import _PythonInterpreter, PythonInterpreterNotFound
+
+    monkeypatch.delenv("O2_SCALPEL_PYTHON_INTERPRETER", raising=False)
+    fake = tmp_path / ".venv" / "bin" / "python"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("#!/usr/bin/env bash\necho 'Python 3.9.18'\n")
+    fake.chmod(0o755)
+    # Make sys.executable also old by patching it.
+    with patch.object(sys, "executable", str(fake)):
+        with pytest.raises(PythonInterpreterNotFound):
+            _PythonInterpreter.discover(tmp_path)
+
+
+# ---- Step 4: Poetry detection (mock subprocess) ------------------------
+
+def test_step4_poetry_env_info(tmp_path: Path, monkeypatch) -> None:
+    from serena.refactoring.python_strategy import _PythonInterpreter
+
+    monkeypatch.delenv("O2_SCALPEL_PYTHON_INTERPRETER", raising=False)
+    (tmp_path / "poetry.lock").write_text("# stub\n")
+    fake = tmp_path / "poetry-venv" / "bin" / "python"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("#!/usr/bin/env bash\necho 'Python 3.11.0'\n")
+    fake.chmod(0o755)
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *a, **kw):  # type: ignore[no-untyped-def]
+        if isinstance(cmd, list) and cmd[:3] == ["poetry", "env", "info"]:
+            class R:
+                stdout = str(fake.parent.parent) + "\n"
+                returncode = 0
+            return R()
+        return real_run(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    resolved = _PythonInterpreter.discover(tmp_path)
+    assert resolved.discovery_step == 4
+    assert resolved.path == fake
+```
+
+(Add 6 additional tests for steps 5–13 mirroring the steps 4 + 14 patterns; each preconditions a marker file (e.g., `pdm.lock`, `uv.lock`, `Pipfile.lock`, `.python-version`, `.tool-versions`, `__pypackages__/3.11/lib`), patches the relevant subprocess or env var, and asserts the matching `discovery_step`. Total: 10 tests.)
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t8_interpreter_discovery.py -v
+```
+
+Expected: all FAIL with `ImportError: cannot import name '_PythonInterpreter'`.
+
+- [ ] **Step 2: Append `_PythonInterpreter` to `python_strategy.py`**
+
+Append to `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/refactoring/python_strategy.py`:
+
+```python
+
+
+# ---------------------------------------------------------------------------
+# T8: 14-step interpreter discovery (specialist-python.md §7).
+# ---------------------------------------------------------------------------
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+
+
+class PythonInterpreterNotFound(RuntimeError):
+    """No interpreter satisfying the >=3.10,<3.14 floor was found.
+
+    Carries the chain of (step_number, reason) tuples for diagnostics so
+    the user can see exactly why each step failed.
+    """
+
+    def __init__(self, attempts: list[tuple[int, str]]):
+        msg = "no Python interpreter found satisfying >=3.10 — attempts:\n  " + \
+              "\n  ".join(f"step {n}: {r}" for n, r in attempts)
+        super().__init__(msg)
+        self.attempts = attempts
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedInterpreter:
+    """Outcome of a successful discovery step."""
+
+    path: Path
+    version: tuple[int, int]  # (major, minor)
+    discovery_step: int  # 1..14
+
+
+_VERSION_RE = re.compile(r"Python\s+(\d+)\.(\d+)")
+_MIN_VERSION = (3, 10)
+_MAX_EXCLUSIVE_VERSION = (3, 14)
+
+
+def _probe_interpreter(path: Path) -> tuple[int, int] | None:
+    """Run ``<path> --version`` and parse major.minor, or None on failure."""
+    if not path.exists():
+        return None
+    try:
+        proc = subprocess.run(
+            [str(path), "--version"], capture_output=True, text=True, timeout=5.0
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    out = (proc.stdout or "") + (proc.stderr or "")
+    m = _VERSION_RE.search(out)
+    if not m:
+        return None
+    v = (int(m.group(1)), int(m.group(2)))
+    if v < _MIN_VERSION or v >= _MAX_EXCLUSIVE_VERSION:
+        return None
+    return v
+
+
+class _PythonInterpreter:
+    """14-step interpreter discovery — class-only namespace; no instances."""
+
+    @classmethod
+    def discover(cls, project_root: Path) -> _ResolvedInterpreter:
+        attempts: list[tuple[int, str]] = []
+
+        # The chain is implemented as a tuple of (step_n, callable) so the
+        # iteration order is impossible to permute by accident.
+        chain: tuple[tuple[int, "callable[[Path], Path | None]"], ...] = (
+            (1, cls._step1_env_override),
+            (2, cls._step2_dot_venv),
+            (3, cls._step3_legacy_venv),
+            (4, cls._step4_poetry),
+            (5, cls._step5_pdm),
+            (6, cls._step6_uv),
+            (7, cls._step7_conda),
+            (8, cls._step8_pipenv),
+            (9, cls._step9_pyenv),
+            (10, cls._step10_asdf),
+            (11, cls._step11_pep582),
+            (12, cls._step12_pythonpath_walk),
+            (13, cls._step13_python_host_path),
+            (14, cls._step14_sys_executable),
+        )
+        for step_n, fn in chain:
+            try:
+                cand = fn(project_root)
+            except Exception as exc:  # noqa: BLE001 — defensive
+                attempts.append((step_n, f"raised: {exc!r}"))
+                continue
+            if cand is None:
+                attempts.append((step_n, "no candidate"))
+                continue
+            v = _probe_interpreter(cand)
+            if v is None:
+                attempts.append((step_n, f"candidate {cand} failed version probe"))
+                continue
+            return _ResolvedInterpreter(path=cand, version=v, discovery_step=step_n)
+        raise PythonInterpreterNotFound(attempts)
+
+    # --- Per-step implementations (one method per step; each ~5-8 LoC) ---
+
+    @staticmethod
+    def _step1_env_override(_root: Path) -> Path | None:
+        raw = os.environ.get("O2_SCALPEL_PYTHON_INTERPRETER")
+        return Path(raw) if raw else None
+
+    @staticmethod
+    def _step2_dot_venv(root: Path) -> Path | None:
+        bin_name = "Scripts" if os.name == "nt" else "bin"
+        exe = "python.exe" if os.name == "nt" else "python"
+        cand = root / ".venv" / bin_name / exe
+        return cand if cand.exists() else None
+
+    @staticmethod
+    def _step3_legacy_venv(root: Path) -> Path | None:
+        bin_name = "Scripts" if os.name == "nt" else "bin"
+        exe = "python.exe" if os.name == "nt" else "python"
+        cand = root / "venv" / bin_name / exe
+        return cand if cand.exists() else None
+
+    @staticmethod
+    def _step4_poetry(root: Path) -> Path | None:
+        if not (root / "poetry.lock").exists():
+            return None
+        if shutil.which("poetry") is None:
+            return None
+        proc = subprocess.run(
+            ["poetry", "env", "info", "-p"],
+            cwd=str(root), capture_output=True, text=True, timeout=10.0,
+        )
+        if proc.returncode != 0:
+            return None
+        venv_root = Path(proc.stdout.strip())
+        bin_name = "Scripts" if os.name == "nt" else "bin"
+        exe = "python.exe" if os.name == "nt" else "python"
+        cand = venv_root / bin_name / exe
+        return cand if cand.exists() else None
+
+    @staticmethod
+    def _step5_pdm(root: Path) -> Path | None:
+        if not (root / "pdm.lock").exists() or shutil.which("pdm") is None:
+            return None
+        proc = subprocess.run(
+            ["pdm", "info", "--python"],
+            cwd=str(root), capture_output=True, text=True, timeout=10.0,
+        )
+        return Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else None
+
+    @staticmethod
+    def _step6_uv(root: Path) -> Path | None:
+        if not (root / "uv.lock").exists() or shutil.which("uv") is None:
+            return None
+        proc = subprocess.run(
+            ["uv", "python", "find", "--project", str(root)],
+            capture_output=True, text=True, timeout=10.0,
+        )
+        return Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else None
+
+    @staticmethod
+    def _step7_conda(root: Path) -> Path | None:
+        if not (root / "environment.yml").exists():
+            return None
+        env_name = os.environ.get("CONDA_DEFAULT_ENV")
+        if not env_name or shutil.which("conda") is None:
+            return None
+        proc = subprocess.run(
+            ["conda", "info", "--envs"], capture_output=True, text=True, timeout=10.0,
+        )
+        for line in (proc.stdout or "").splitlines():
+            parts = line.split()
+            if parts and parts[0] == env_name:
+                bin_name = "Scripts" if os.name == "nt" else "bin"
+                exe = "python.exe" if os.name == "nt" else "python"
+                return Path(parts[-1]) / bin_name / exe
+        return None
+
+    @staticmethod
+    def _step8_pipenv(root: Path) -> Path | None:
+        if not (root / "Pipfile.lock").exists() or shutil.which("pipenv") is None:
+            return None
+        proc = subprocess.run(
+            ["pipenv", "--py"], cwd=str(root), capture_output=True, text=True, timeout=10.0,
+        )
+        return Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else None
+
+    @staticmethod
+    def _step9_pyenv(root: Path) -> Path | None:
+        if not (root / ".python-version").exists() or shutil.which("pyenv") is None:
+            return None
+        proc = subprocess.run(
+            ["pyenv", "which", "python"],
+            cwd=str(root), capture_output=True, text=True, timeout=10.0,
+        )
+        return Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else None
+
+    @staticmethod
+    def _step10_asdf(root: Path) -> Path | None:
+        tv = root / ".tool-versions"
+        if not tv.exists() or shutil.which("asdf") is None:
+            return None
+        if "python" not in tv.read_text():
+            return None
+        proc = subprocess.run(
+            ["asdf", "where", "python"],
+            cwd=str(root), capture_output=True, text=True, timeout=10.0,
+        )
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return None
+        bin_name = "Scripts" if os.name == "nt" else "bin"
+        exe = "python.exe" if os.name == "nt" else "python"
+        return Path(proc.stdout.strip()) / bin_name / exe
+
+    @staticmethod
+    def _step11_pep582(root: Path) -> Path | None:
+        pp = root / "__pypackages__"
+        if not pp.is_dir():
+            return None
+        # Highest X.Y dir under __pypackages__ that has a lib/.
+        candidates = sorted(
+            (d for d in pp.iterdir() if d.is_dir() and (d / "lib").is_dir()),
+            reverse=True,
+        )
+        if not candidates:
+            return None
+        # PEP 582 does not bundle an interpreter; resolve via PATH as a hint.
+        which = shutil.which(f"python{candidates[0].name}")
+        return Path(which) if which else None
+
+    @staticmethod
+    def _step12_pythonpath_walk(_root: Path) -> Path | None:
+        pp = os.environ.get("PYTHONPATH")
+        if not pp:
+            return None
+        for entry in pp.split(os.pathsep):
+            p = Path(entry)
+            if not p.is_dir():
+                continue
+            for dist in p.glob("*.dist-info/METADATA"):
+                # METADATA lacks an interpreter pointer — fall back to PATH's
+                # generic python. Step 12 is intentionally weak; it only
+                # signals "there is *some* python in PYTHONPATH".
+                which = shutil.which("python3") or shutil.which("python")
+                return Path(which) if which else None
+        return None
+
+    @staticmethod
+    def _step13_python_host_path(_root: Path) -> Path | None:
+        raw = os.environ.get("PYTHON_HOST_PATH")
+        return Path(raw) if raw else None
+
+    @staticmethod
+    def _step14_sys_executable(_root: Path) -> Path | None:
+        return Path(sys.executable)
+```
+
+- [ ] **Step 3: Run interpreter discovery tests, expect green**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t8_interpreter_discovery.py -v
+```
+
+Expected: 10/10 PASS.
+
+- [ ] **Step 4: Write failing tests for the Rope library bridge**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1e_t8_rope_bridge.py`:
+
+```python
+"""T8 — Rope library bridge (rope==1.14.0; specialist-python.md §10 row 'MoveModule')."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+
+def test_rope_bridge_imports() -> None:
+    from serena.refactoring.python_strategy import _RopeBridge, RopeBridgeError  # noqa: F401
+
+
+def test_rope_bridge_move_module_returns_workspace_edit(tmp_path: Path) -> None:
+    """MoveModule renames a .py file and rewrites importers — typed WorkspaceEdit out."""
+    from serena.refactoring.python_strategy import _RopeBridge
+
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "a.py").write_text("def hello() -> int:\n    return 1\n")
+    (pkg / "user.py").write_text("from pkg.a import hello\nprint(hello())\n")
+
+    bridge = _RopeBridge(project_root=tmp_path)
+    edit = bridge.move_module(source_rel="pkg/a.py", target_rel="pkg/b.py")
+
+    # WorkspaceEdit shape: documentChanges (preferred) OR changes mapping.
+    assert "documentChanges" in edit or "changes" in edit, edit
+    # At minimum, the target file appears in the edit (rename op).
+    payload = str(edit)
+    assert "pkg/b.py" in payload or "b.py" in payload, payload
+
+
+def test_rope_bridge_change_signature_typed_inputs(tmp_path: Path) -> None:
+    """ChangeSignature takes typed Pydantic input; raises RopeBridgeError on bad symbol."""
+    from serena.refactoring.python_strategy import _RopeBridge, RopeBridgeError, ChangeSignatureSpec
+
+    (tmp_path / "x.py").write_text("def f(a, b): return a + b\n")
+    bridge = _RopeBridge(project_root=tmp_path)
+    with pytest.raises(RopeBridgeError):
+        bridge.change_signature(
+            ChangeSignatureSpec(
+                file_rel="x.py",
+                symbol_offset=99999,  # past EOF — Rope cannot resolve
+                new_parameters=["a", "b", "c=0"],
+            )
+        )
+```
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t8_rope_bridge.py -v
+```
+
+Expected: all FAIL on import.
+
+- [ ] **Step 5: Append `_RopeBridge` to `python_strategy.py`**
+
+Append:
+
+```python
+
+
+# ---------------------------------------------------------------------------
+# T8: Rope library bridge (rope==1.14.0; specialist-python.md §10).
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel, Field
+
+
+class RopeBridgeError(RuntimeError):
+    """A Rope-library refactor failed; carries the underlying exception type."""
+
+
+class ChangeSignatureSpec(BaseModel):
+    """Typed input for ``_RopeBridge.change_signature``."""
+
+    file_rel: str
+    symbol_offset: int = Field(..., ge=0)
+    new_parameters: list[str]
+
+
+def _rope_changes_to_workspace_edit(project, changes) -> dict[str, Any]:
+    """Convert a ``rope.base.change.ChangeSet`` into LSP ``WorkspaceEdit``.
+
+    The mapping treats ``ChangeContents`` as a document-change with full
+    text replacement, and ``MoveResource`` / ``RenameResource`` /
+    ``CreateResource`` / ``RemoveResource`` as resource ops in
+    ``documentChanges``.
+    """
+    from rope.base.change import (
+        ChangeContents, CreateResource, MoveResource, RemoveResource, RenameResource,
+    )
+
+    document_changes: list[dict[str, Any]] = []
+    for change in changes.changes:
+        if isinstance(change, ChangeContents):
+            uri = Path(project.address) / change.resource.path
+            new_text = change.new_contents
+            document_changes.append({
+                "textDocument": {"uri": uri.as_uri(), "version": None},
+                "edits": [{
+                    "range": {
+                        "start": {"line": 0, "character": 0},
+                        "end": {"line": 10**9, "character": 0},  # full-file replace sentinel
+                    },
+                    "newText": new_text,
+                }],
+            })
+        elif isinstance(change, (MoveResource, RenameResource)):
+            old = Path(project.address) / change.resource.path
+            new = Path(project.address) / change.new_resource.path  # type: ignore[attr-defined]
+            document_changes.append({
+                "kind": "rename",
+                "oldUri": old.as_uri(),
+                "newUri": new.as_uri(),
+            })
+        elif isinstance(change, CreateResource):
+            document_changes.append({
+                "kind": "create",
+                "uri": (Path(project.address) / change.resource.path).as_uri(),
+            })
+        elif isinstance(change, RemoveResource):
+            document_changes.append({
+                "kind": "delete",
+                "uri": (Path(project.address) / change.resource.path).as_uri(),
+            })
+    return {"documentChanges": document_changes}
+
+
+class _RopeBridge:
+    """In-process Rope-library bridge for refactors pylsp-rope does not expose.
+
+    Per ``specialist-python.md`` §10: `MoveModule`, `ChangeSignature`,
+    `IntroduceFactory`, `EncapsulateField`, `Restructure`. T8 lands the
+    first two as the proof-of-life pair; Stage 1F adds the remaining three.
+    """
+
+    def __init__(self, project_root: Path) -> None:
+        from rope.base.project import Project
+        self._project = Project(str(project_root))
+
+    def close(self) -> None:
+        self._project.close()
+
+    def move_module(self, source_rel: str, target_rel: str) -> dict[str, Any]:
+        """Rename a .py module and rewrite all importers."""
+        from rope.refactor.move import create_move
+
+        try:
+            resource = self._project.get_resource(source_rel)
+            mover = create_move(self._project, resource)
+            target_dir_rel, _, new_name = target_rel.rpartition("/")
+            target_dir = (
+                self._project.get_resource(target_dir_rel)
+                if target_dir_rel else self._project.root
+            )
+            changes = mover.get_changes(target_dir, new_name=new_name.replace(".py", ""))
+        except Exception as exc:  # noqa: BLE001
+            raise RopeBridgeError(f"move_module failed: {exc!r}") from exc
+        return _rope_changes_to_workspace_edit(self._project, changes)
+
+    def change_signature(self, spec: ChangeSignatureSpec) -> dict[str, Any]:
+        """Apply a ChangeSignature refactor at the given offset."""
+        from rope.refactor.change_signature import ChangeSignature
+
+        try:
+            resource = self._project.get_resource(spec.file_rel)
+            cs = ChangeSignature(self._project, resource, spec.symbol_offset)
+            # Rope's ChangeSignature works on a list of "changers"; the
+            # simplest is ArgumentReorderer — but the typed spec here just
+            # carries new parameter names, so we drive it as a "rename of
+            # the parameter list" via rope's get_changes.
+            from rope.refactor.change_signature import ArgumentReorderer
+            order_changer = ArgumentReorderer(list(range(len(spec.new_parameters))))
+            changes = cs.get_changes([order_changer])
+        except Exception as exc:  # noqa: BLE001
+            raise RopeBridgeError(f"change_signature failed: {exc!r}") from exc
+        return _rope_changes_to_workspace_edit(self._project, changes)
+```
+
+- [ ] **Step 6: Re-run all T8 tests, expect green**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t8_interpreter_discovery.py test/spikes/test_stage_1e_t8_rope_bridge.py -v
+```
+
+Expected: 10 + 3 = 13 PASS. If `change_signature` test fails because Rope's API differs at 1.14.0, capture the actual signature from `vendor/serena/.venv/lib/python*/site-packages/rope/refactor/change_signature.py` and adjust the implementation; the test's *intent* (raise RopeBridgeError on invalid offset) does not change.
+
+- [ ] **Step 7: Wire interpreter into the strategy at coordinator construction time**
+
+Modify the `coordinator()` method in `python_strategy.py` to call `_PythonInterpreter.discover` and inject the resolved path into basedpyright via `configure_python_path` after `start_server`. Because `configure_python_path` requires a started server, the wiring lives behind a `coordinator(project_root, *, configure_interpreter=True)` flag — set `False` in unit tests to keep them synchronous.
+
+```python
+    def coordinator(
+        self, project_root: Path, *, configure_interpreter: bool = True,
+    ) -> MultiServerCoordinator:
+        servers = self.build_servers(project_root)
+        if configure_interpreter:
+            try:
+                resolved = _PythonInterpreter.discover(project_root)
+            except PythonInterpreterNotFound as exc:
+                log.warning("interpreter discovery failed: %s", exc)
+                resolved = None
+            if resolved is not None:
+                bp = servers.get("basedpyright")
+                if bp is not None and hasattr(bp, "configure_python_path"):
+                    # Best-effort post-init; safe no-op if server not yet started.
+                    try:
+                        bp.configure_python_path(str(resolved.path))
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug("configure_python_path skipped: %s", exc)
+        return MultiServerCoordinator(servers=servers)
+```
+
+Re-run T7 tests to confirm no regression:
+```bash
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1e_t7_python_strategy_multi_server.py -v
+```
+
+Expected: 6/6 PASS (test passes `configure_interpreter=True` by default but `bp` is a MagicMock — best-effort path swallows the call).
+
+- [ ] **Step 8: Commit T8**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/refactoring/python_strategy.py \
+        test/spikes/test_stage_1e_t8_interpreter_discovery.py \
+        test/spikes/test_stage_1e_t8_rope_bridge.py
+git commit -m "$(cat <<'EOF'
+stage-1e(t8): 14-step interpreter discovery + Rope library bridge
+
+Discovery chain (specialist-python.md §7, expanded by 2):
+  env override → .venv → venv → poetry → pdm → uv → conda → pipenv →
+  pyenv → asdf → PEP 582 → PYTHONPATH walk → PYTHON_HOST_PATH →
+  sys.executable. Each step probes <candidate> --version and enforces
+  >=3.10,<3.14 floor (Phase 0 P3). PythonInterpreterNotFound carries
+  per-step failure reasons.
+
+Rope library bridge (rope==1.14.0): move_module + change_signature with
+typed Pydantic inputs; converts rope.base.change.ChangeSet into LSP
+WorkspaceEdit so the merger / applier consume bridge output identically
+to LSP-sourced edits. Three remaining bridge ops (IntroduceFactory,
+EncapsulateField, Restructure) deferred to Stage 1F.
+
+coordinator() now optionally drives interpreter discovery and injects the
+resolved path into basedpyright via configure_python_path().
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD  # paste into PROGRESS row T8
+```
+
+Update parent ledger and commit.
 
 ### Task 9: Registry + integration smoke + ledger close + submodule ff-merge + parent merge + tag
 
