@@ -1486,3 +1486,931 @@ ls calcrs/src/ ra_extractors/src/ ra_inliners/src/ ra_visibility/src/ ra_imports
 
 Expected: workspace check exits 0; each fleshed crate has a non-trivial `lib.rs`. If cargo prints any warning that isn't `dead_code` or `unused_imports`, fix it before committing.
 
+### Task 2: 13 additional RA companion crates (flesh out the workspace)
+
+**Files:**
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_glob_imports/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_ordering/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_generators_traits/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_generators_methods/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_convert_typeshape/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_convert_returntype/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_pattern_destructuring/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_lifetimes/src/lib.rs`
+- Modify (replace stub + Cargo.toml): `vendor/serena/test/fixtures/calcrs/ra_proc_macros/{Cargo.toml,src/lib.rs}` (only crate with deps)
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_ssr/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_macros/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_module_layouts/{src/lib.rs,src/foo/mod.rs,src/foo/bar.rs,src/baz.rs}`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_quickfixes/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_workspace_edit_shapes/src/lib.rs`
+- Modify (replace stub): `vendor/serena/test/fixtures/calcrs/ra_term_search/src/lib.rs`
+
+The sub-steps below give the concrete content for each crate. Each crate is short (≤300 LoC) and independent — they can be authored in any order; the grouping below is for review-flow ergonomics.
+
+- [ ] **Step 1: `ra_glob_imports/src/lib.rs` (~120 LoC)** — Family D (glob expansion subfamily)
+
+```rust
+//! ra_glob_imports — fixture for `expand_glob_import` + `expand_glob_reexport`.
+//!
+//! Pre-state: each module imports siblings via `use sibling::*;`. The
+//! integration test (test_assist_glob_imports.py) requests
+//! `experimental.expandGlobReexport` / the `expand_glob_import` assist
+//! at the `*` cursor and asserts the post-edit `use` line is the
+//! explicit name list.
+
+#![allow(dead_code)]
+
+mod arithmetic {
+    pub fn add(a: i32, b: i32) -> i32 { a + b }
+    pub fn sub(a: i32, b: i32) -> i32 { a - b }
+    pub fn mul(a: i32, b: i32) -> i32 { a * b }
+    pub fn div(a: i32, b: i32) -> i32 { a / b }
+    pub const PI_X100: i32 = 314;
+    pub struct Result2 { pub v: i32 }
+}
+
+mod compare {
+    pub fn min2(a: i32, b: i32) -> i32 { if a < b { a } else { b } }
+    pub fn max2(a: i32, b: i32) -> i32 { if a > b { a } else { b } }
+    pub enum Ord3 { Less, Equal, Greater }
+}
+
+// Glob import target — `expand_glob_import` rewrites this to the explicit list.
+use arithmetic::*;
+
+// Glob re-export target — `expand_glob_reexport` rewrites to explicit names.
+pub use compare::*;
+
+pub fn glob_consumer(a: i32, b: i32) -> i32 {
+    add(mul(a, b), sub(b, a))
+}
+
+pub fn reexport_consumer(a: i32, b: i32) -> Ord3 {
+    if min2(a, b) == max2(a, b) { Ord3::Equal }
+    else if min2(a, b) == a     { Ord3::Less }
+    else                         { Ord3::Greater }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke_glob() { assert_eq!(glob_consumer(2, 3), 7); }
+    #[test] fn smoke_reexport() {
+        assert!(matches!(reexport_consumer(1, 1), Ord3::Equal));
+    }
+}
+```
+
+- [ ] **Step 2: `ra_ordering/src/lib.rs` (~180 LoC)** — Family F (ordering)
+
+```rust
+//! ra_ordering — fixture for family F: reorder_impl_items, sort_items,
+//! reorder_fields. Pre-state is *deliberately* unsorted in each section
+//! so the assist offer is non-empty.
+
+#![allow(dead_code)]
+
+// reorder_fields target ----------------------------------------------------
+pub struct Unsorted {
+    pub zebra: i32,
+    pub apple: i32,
+    pub mango: i32,
+    pub banana: i32,
+}
+
+// sort_items target — top-level functions out of alphabetical order.
+pub fn zulu()  -> i32 { 26 }
+pub fn alpha() -> i32 { 1 }
+pub fn mike()  -> i32 { 13 }
+pub fn bravo() -> i32 { 2 }
+
+// reorder_impl_items target — methods on `Calc` are out of declaration order.
+pub struct Calc { pub state: i32 }
+
+impl Calc {
+    pub fn z_reset(&mut self) { self.state = 0; }
+    pub fn a_inc(&mut self)   { self.state += 1; }
+    pub fn m_double(&mut self) { self.state *= 2; }
+    pub fn b_dec(&mut self)   { self.state -= 1; }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test] fn smoke_unsorted() {
+        let u = Unsorted { zebra: 4, apple: 1, mango: 3, banana: 2 };
+        assert_eq!(u.apple + u.banana + u.mango + u.zebra, 10);
+    }
+
+    #[test] fn smoke_calc() {
+        let mut c = Calc { state: 0 };
+        c.a_inc(); c.m_double(); c.b_dec(); c.z_reset();
+        assert_eq!(c.state, 0);
+    }
+
+    #[test] fn smoke_top_levels() {
+        assert_eq!(alpha() + bravo() + mike() + zulu(), 1 + 2 + 13 + 26);
+    }
+}
+```
+
+- [ ] **Step 3: `ra_generators_traits/src/lib.rs` (~250 LoC)** — Family G trait scaffolders
+
+```rust
+//! ra_generators_traits — fixture for trait-impl scaffolders.
+
+#![allow(dead_code)]
+
+use std::fmt;
+
+// generate_default_from_new target ----------------------------------------
+pub struct WithNew { pub v: i32 }
+
+impl WithNew {
+    pub fn new() -> Self { Self { v: 0 } }
+    // <-- generate_default_from_new offers `impl Default for WithNew`.
+}
+
+// generate_from_impl_for_enum target ---------------------------------------
+pub enum Either {
+    L(String),
+    R(i32),
+    // <-- generate_from_impl_for_enum offers
+    //     `impl From<String> for Either` and `impl From<i32> for Either`.
+}
+
+// generate_trait_impl target — bare trait declared, struct that satisfies the
+// shape but has no impl block yet.
+pub trait Greet {
+    fn greet(&self) -> String;
+}
+
+pub struct Greeter { pub name: String }
+// <-- generate_trait_impl offers `impl Greet for Greeter`.
+
+// generate_impl target — concrete struct with no inherent impl block.
+pub struct Counter {
+    pub value: i32,
+    pub limit: i32,
+}
+// <-- generate_impl offers an empty `impl Counter { ... }`.
+
+// generate_deref target — newtype wrapping `Vec<i32>` deserves Deref.
+pub struct Bag(pub Vec<i32>);
+// <-- generate_deref offers `impl std::ops::Deref for Bag`.
+
+// generate_documentation_template target — undocumented public function.
+pub fn for_doc_template(n: i32) -> i32 { n + 1 }
+
+// generate_doc_example target — function with a body that hints at example.
+pub fn for_doc_example(items: &[i32]) -> i32 { items.iter().sum() }
+
+// generate_display target — struct without `Display`.
+pub struct Coord { pub x: i32, pub y: i32 }
+// <-- generate_display offers `impl fmt::Display for Coord`.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test] fn smoke_with_new() { assert_eq!(WithNew::new().v, 0); }
+    #[test] fn smoke_either()   {
+        let _l = Either::L("x".into());
+        let _r = Either::R(7);
+    }
+    #[test] fn smoke_greeter()  { let _ = Greeter { name: "x".into() }; }
+    #[test] fn smoke_bag()      { let _ = Bag(vec![1, 2, 3]); }
+    #[test] fn smoke_doc()      { assert_eq!(for_doc_template(2), 3); }
+    #[test] fn smoke_coord()    { let _ = Coord { x: 1, y: 2 }; }
+}
+```
+
+- [ ] **Step 4: `ra_generators_methods/src/lib.rs` (~200 LoC)** — Family G method scaffolders
+
+```rust
+//! ra_generators_methods — fixture for method-level generators.
+
+#![allow(dead_code)]
+
+// generate_function target — caller exists, callee does not.
+pub fn caller_for_generate_function(n: i32) -> i32 {
+    n + new_helper(n)               // <-- generate_function offers `fn new_helper`.
+}
+// (intentionally unresolved; the assist creates `fn new_helper`.)
+
+// generate_new target — struct without `new`.
+pub struct PointPN {
+    pub x: i32,
+    pub y: i32,
+}
+// <-- generate_new offers `impl PointPN { pub fn new(...) -> Self { ... } }`.
+
+// generate_getter target — bare field.
+pub struct WithField {
+    name: String,           // <-- generate_getter offers `pub fn name(&self) -> &str`.
+}
+
+impl WithField {
+    pub fn empty() -> Self { Self { name: String::new() } }
+}
+
+// generate_setter target — bare field.
+pub struct Mutable {
+    value: i32,             // <-- generate_setter offers `pub fn set_value`.
+}
+
+impl Mutable {
+    pub fn new(v: i32) -> Self { Self { value: v } }
+}
+
+// generate_constant target — magic literal in expression.
+pub fn for_generate_constant() -> i32 {
+    let x = 42;             // <-- generate_constant offers `pub const X: i32 = 42;`.
+    x + 1
+}
+
+// generate_delegate_methods target — wrapper around `Vec`.
+pub struct Wrapper(Vec<i32>);
+impl Wrapper {
+    pub fn new() -> Self { Self(Vec::new()) }
+    // <-- generate_delegate_methods offers delegating `len`, `push`, …
+}
+
+// generate_enum_is_method target — enum without `is_*` methods.
+pub enum State { Idle, Working(i32), Done }
+// <-- generate_enum_is_method offers `is_idle`, `is_working`, `is_done`.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke_with_field() { let _ = WithField::empty(); }
+    #[test] fn smoke_mutable()    { let _ = Mutable::new(7); }
+    #[test] fn smoke_constant()   { assert_eq!(for_generate_constant(), 43); }
+    #[test] fn smoke_wrapper()    { let _ = Wrapper::new(); }
+    #[test] fn smoke_state()      { let _ = State::Working(3); }
+}
+// NB: `caller_for_generate_function` deliberately fails to compile until
+// the assist runs. The integration test marks this crate as
+// `cargo check --keep-going` exempt — assist post-state is what compiles.
+```
+
+NOTE: For the workspace `cargo check --workspace` to remain green at this point, `caller_for_generate_function` must be **commented out** in the committed file; the integration test for `generate_function` uncomments it programmatically before requesting the assist. Update the snippet to wrap the body in `/* … */` before committing.
+
+- [ ] **Step 5: `ra_convert_typeshape/src/lib.rs` (~150 LoC)** — Family H type-shape rewrites
+
+```rust
+//! ra_convert_typeshape — fixture for `convert_named_struct_to_tuple_struct`
+//! and siblings.
+
+#![allow(dead_code)]
+
+// convert_named_struct_to_tuple_struct target.
+pub struct NamedPair {
+    pub first: i32,
+    pub second: i32,
+}
+
+impl NamedPair {
+    pub fn sum(&self) -> i32 { self.first + self.second }
+}
+
+// convert_tuple_struct_to_named_struct target.
+pub struct TupleTriple(pub i32, pub i32, pub i32);
+
+impl TupleTriple {
+    pub fn sum(&self) -> i32 { self.0 + self.1 + self.2 }
+}
+
+// convert_two_arm_bool_match_to_matches_macro target.
+pub fn for_matches_macro(opt: Option<i32>) -> bool {
+    match opt {
+        Some(_) => true,
+        None    => false,
+    }
+}
+
+// convert_let_else_to_match target.
+pub fn for_let_else(opt: Option<i32>) -> i32 {
+    let Some(v) = opt else { return -1 };
+    v + 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke_named()  { assert_eq!(NamedPair { first: 1, second: 2 }.sum(), 3); }
+    #[test] fn smoke_tuple()  { assert_eq!(TupleTriple(1, 2, 3).sum(), 6); }
+    #[test] fn smoke_match()  { assert!(for_matches_macro(Some(5))); }
+    #[test] fn smoke_le()     { assert_eq!(for_let_else(Some(2)), 3); }
+}
+```
+
+- [ ] **Step 6: `ra_convert_returntype/src/lib.rs` (~120 LoC)** — Family H return-type rewrites
+
+```rust
+//! ra_convert_returntype — fixture for wrap/unwrap return-type assists.
+
+#![allow(dead_code)]
+
+// wrap_return_type_in_result target — bare i32 return.
+pub fn for_wrap_in_result(divisor: i32) -> i32 {
+    100 / divisor
+}
+
+// wrap_return_type_in_option target — function that signals via sentinel.
+pub fn for_wrap_in_option(items: &[i32], idx: usize) -> i32 {
+    if idx < items.len() { items[idx] } else { -1 }
+}
+
+// unwrap_result_return_type target — Result<i32, _> always Ok.
+pub fn for_unwrap_result() -> Result<i32, std::convert::Infallible> {
+    Ok(42)
+}
+
+// unwrap_option_return_type target — Option<i32> always Some.
+pub fn for_unwrap_option() -> Option<i32> {
+    Some(7)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke_div() { assert_eq!(for_wrap_in_result(2), 50); }
+    #[test] fn smoke_idx() { assert_eq!(for_wrap_in_option(&[1, 2, 3], 1), 2); }
+    #[test] fn smoke_ok()  { assert_eq!(for_unwrap_result().unwrap(), 42); }
+    #[test] fn smoke_some() { assert_eq!(for_unwrap_option().unwrap(), 7); }
+}
+```
+
+- [ ] **Step 7: `ra_pattern_destructuring/src/lib.rs` (~150 LoC)** — Family I patterns
+
+```rust
+//! ra_pattern_destructuring — fixture for family I (patterns).
+
+#![allow(dead_code)]
+
+pub enum Color { Red, Green, Blue, Custom(u8, u8, u8) }
+
+// add_missing_match_arms target — `Custom` arm omitted.
+pub fn for_add_missing_arms(c: Color) -> i32 {
+    match c {
+        Color::Red   => 1,
+        Color::Green => 2,
+        Color::Blue  => 3,
+        // <-- add_missing_match_arms offers `Color::Custom(r, g, b) => todo!()`
+        Color::Custom(_, _, _) => 0,   // present so the file compiles
+    }
+}
+
+// add_missing_impl_members target — trait declared, impl omits one method.
+pub trait Three {
+    fn one(&self)   -> i32;
+    fn two(&self)   -> i32;
+    fn three(&self) -> i32;
+}
+
+pub struct ThreeProvider;
+
+impl Three for ThreeProvider {
+    fn one(&self)   -> i32 { 1 }
+    fn two(&self)   -> i32 { 2 }
+    fn three(&self) -> i32 { 3 }
+    // <-- add_missing_impl_members tested by deleting `three` and rerunning.
+}
+
+// destructure_struct_binding target — bound-by-value struct.
+pub struct Triple { pub a: i32, pub b: i32, pub c: i32 }
+
+pub fn for_destructure(t: Triple) -> i32 {
+    let triple = t;       // <-- destructure_struct_binding offers
+                          //     `let Triple { a, b, c } = t;`
+    triple.a + triple.b + triple.c
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke_arms() { assert_eq!(for_add_missing_arms(Color::Red), 1); }
+    #[test] fn smoke_three() { let p = ThreeProvider; assert_eq!(p.one() + p.two() + p.three(), 6); }
+    #[test] fn smoke_destructure() {
+        assert_eq!(for_destructure(Triple { a: 1, b: 2, c: 3 }), 6);
+    }
+}
+```
+
+- [ ] **Step 8: `ra_lifetimes/src/lib.rs` (~180 LoC)** — Family J lifetimes
+
+```rust
+//! ra_lifetimes — fixture for family J (lifetimes & references).
+
+#![allow(dead_code)]
+
+// add_explicit_lifetime_to_self target — elided self lifetime in trait.
+pub trait Bumper {
+    fn bump(&self) -> &str;            // <-- add_explicit_lifetime_to_self
+}
+
+pub struct Holder { pub label: String }
+
+impl Bumper for Holder {
+    fn bump(&self) -> &str { &self.label }
+}
+
+// extract_explicit_lifetime target — multiple `&` parameters in fn signature.
+pub fn for_extract_lifetime(a: &str, b: &str) -> &str {
+    if a.len() > b.len() { a } else { b }
+}
+
+// introduce_named_lifetime target — anonymous lifetime in struct field.
+pub struct Borrowed<'a> {
+    pub data: &'a str,
+}
+
+// (this site is target for `introduce_named_lifetime` if we strip the `'a`
+// before invoking the assist; integration test does the strip programmatically.)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test] fn smoke_holder() {
+        let h = Holder { label: "x".into() };
+        assert_eq!(h.bump(), "x");
+    }
+
+    #[test] fn smoke_extract() {
+        assert_eq!(for_extract_lifetime("a", "bb"), "bb");
+    }
+
+    #[test] fn smoke_borrowed() {
+        let s = String::from("y");
+        let b = Borrowed { data: &s };
+        assert_eq!(b.data, "y");
+    }
+}
+```
+
+- [ ] **Step 9: `ra_proc_macros/Cargo.toml` + `src/lib.rs` (~200 LoC; only crate with deps)**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs/ra_proc_macros/Cargo.toml`:
+
+```toml
+[package]
+name = "ra_proc_macros"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+async-trait = "0.1"
+clap        = { version = "4", features = ["derive"] }
+tokio       = { version = "1", features = ["macros", "rt"] }
+```
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs/ra_proc_macros/src/lib.rs`:
+
+```rust
+//! ra_proc_macros — fixture exercising the proc-macro pathway.
+//!
+//! r-a's proc-macro support is the load-bearing path for `expandMacro`
+//! responses on `#[derive(Serialize)]` etc. This fixture is the only one
+//! in the workspace allowed to pull crates.io deps (specialist-rust §7.3
+//! ground rule 3).
+
+#![allow(dead_code)]
+
+use serde::{Deserialize, Serialize};
+use async_trait::async_trait;
+use clap::Parser;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Profile {
+    pub id: u64,
+    pub name: String,
+    pub tags: Vec<String>,
+}
+
+#[async_trait]
+pub trait Fetch {
+    async fn fetch(&self, id: u64) -> Profile;
+}
+
+pub struct StaticFetcher;
+
+#[async_trait]
+impl Fetch for StaticFetcher {
+    async fn fetch(&self, id: u64) -> Profile {
+        Profile { id, name: format!("user-{id}"), tags: vec!["fixture".into()] }
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct Cli {
+    #[arg(short, long)]
+    pub profile_id: u64,
+    #[arg(short, long, default_value = "user")]
+    pub kind: String,
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn run(cli: Cli) -> String {
+    let fetcher = StaticFetcher;
+    let p = fetcher.fetch(cli.profile_id).await;
+    serde_json::to_string(&p).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_round_trip() {
+        let p = Profile { id: 1, name: "x".into(), tags: vec!["t".into()] };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: Profile = serde_json::from_str(&s).unwrap();
+        assert_eq!(p, back);
+    }
+}
+```
+
+- [ ] **Step 10: `ra_ssr/src/lib.rs` (~180 LoC)** — `experimental/ssr`
+
+```rust
+//! ra_ssr — fixture for `experimental/ssr` integration test.
+//!
+//! Each function below contains repetitions of the *pre-pattern* the test
+//! sends to rust-analyzer's SSR endpoint. The assist rewrites them in-place
+//! to the *post-pattern*. The integration test asserts the post-state.
+
+#![allow(dead_code)]
+
+// Pattern 1: $x.unwrap()  -->  $x?
+pub fn for_unwrap_to_question(a: Option<i32>, b: Option<i32>) -> i32 {
+    a.unwrap() + b.unwrap()
+}
+
+pub fn for_unwrap_to_question_2(items: &[Option<i32>]) -> Vec<i32> {
+    items.iter().map(|x| x.unwrap()).collect()
+}
+
+// Pattern 2: Vec::new()  -->  vec![]
+pub fn for_vec_new_to_macro() -> Vec<i32> {
+    let mut v = Vec::new();
+    v.push(1);
+    v
+}
+
+// Pattern 3: format!("{}", $x)  -->  $x.to_string()
+pub fn for_format_to_to_string(n: i32) -> String {
+    format!("{}", n)
+}
+
+// Pattern 4: if let Some($x) = $y { $body } -->
+//            if let Some($x) = $y { $body }  (same; control: SSR offers no edit)
+pub fn for_no_op_pattern(o: Option<i32>) -> i32 {
+    if let Some(x) = o { x } else { 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test] fn smoke_unwrap()   { assert_eq!(for_unwrap_to_question(Some(1), Some(2)), 3); }
+    #[test] fn smoke_vec()      { assert_eq!(for_vec_new_to_macro(), vec![1]); }
+    #[test] fn smoke_format()   { assert_eq!(for_format_to_to_string(3), "3"); }
+    #[test] fn smoke_no_op()    { assert_eq!(for_no_op_pattern(Some(7)), 7); }
+}
+```
+
+- [ ] **Step 11: `ra_macros/src/lib.rs` (~150 LoC)** — `expandMacro` extension
+
+```rust
+//! ra_macros — fixture for `rust-analyzer/expandMacro` extension.
+
+#![allow(dead_code)]
+
+// Built-in macros to expand.
+pub fn for_expand_vec() -> Vec<i32> {
+    vec![1, 2, 3]                  // <-- expandMacro at `vec!` cursor.
+}
+
+pub fn for_expand_format() -> String {
+    format!("{}-{}", "a", "b")     // <-- expandMacro at `format!` cursor.
+}
+
+pub fn for_expand_println() {
+    println!("calc: {}", 42);      // <-- expandMacro at `println!` cursor.
+}
+
+// Custom macro to expand.
+macro_rules! triple {
+    ($x:expr) => { $x * 3 };
+}
+
+pub fn for_expand_triple(n: i32) -> i32 {
+    triple!(n + 1)                 // <-- expandMacro at `triple!` cursor.
+}
+
+// Derive-macro expansion.
+#[derive(Debug, Clone)]
+pub struct DeriveTarget {
+    pub a: i32,
+    pub b: i32,
+}                                  // <-- expandMacro at `#[derive(...)]` cursor.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke_vec()    { assert_eq!(for_expand_vec(), vec![1, 2, 3]); }
+    #[test] fn smoke_format() { assert_eq!(for_expand_format(), "a-b"); }
+    #[test] fn smoke_triple() { assert_eq!(for_expand_triple(2), 9); }
+    #[test] fn smoke_derive() { let _ = DeriveTarget { a: 1, b: 2 }.clone(); }
+}
+```
+
+- [ ] **Step 12: `ra_module_layouts` — multi-file fixture (~200 LoC across 4 files)**
+
+Replace the placeholder `src/lib.rs` and add three additional files demonstrating both module layouts (mod.rs vs adjacent file).
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs/ra_module_layouts/src/lib.rs`:
+
+```rust
+//! ra_module_layouts — fixture for family A (mod.rs swap +
+//! `move_module_to_file` / `move_from_mod_rs` / `move_to_mod_rs`).
+
+#![allow(dead_code)]
+
+// mod.rs-style submodule.
+pub mod foo;
+
+// adjacent-file submodule.
+pub mod baz;
+
+// inline submodule — `move_inline_module_to_file` target.
+pub mod inline_target {
+    pub fn ping() -> &'static str { "pong" }
+    pub struct InlineHelper { pub n: i32 }
+    impl InlineHelper {
+        pub fn new(n: i32) -> Self { Self { n } }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke_foo()    { assert_eq!(foo::value(), 7); }
+    #[test] fn smoke_baz()    { assert_eq!(baz::value(), 11); }
+    #[test] fn smoke_inline() { assert_eq!(inline_target::ping(), "pong"); }
+}
+```
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs/ra_module_layouts/src/foo/mod.rs`:
+
+```rust
+pub mod bar;
+
+pub fn value() -> i32 { 7 + bar::contribute() }
+```
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs/ra_module_layouts/src/foo/bar.rs`:
+
+```rust
+pub fn contribute() -> i32 { 0 }
+```
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs/ra_module_layouts/src/baz.rs`:
+
+```rust
+pub fn value() -> i32 { 11 }
+```
+
+- [ ] **Step 13: `ra_quickfixes/src/lib.rs` (~250 LoC)** — Family L diagnostic-bound quickfixes
+
+```rust
+//! ra_quickfixes — fixture for family L (quickfix code actions bound to
+//! diagnostics). Each section is a deliberately-broken construct that
+//! produces a known diagnostic; the integration test exercises the
+//! corresponding quickfix.
+//!
+//! NB: most sections compile as-is because the broken pattern is wrapped
+//! in `#[cfg(any())]` (never enabled). The integration test enables a
+//! single section by editing-out the cfg gate, requests the codeAction,
+//! then restores the cfg gate.
+
+#![allow(dead_code)]
+
+// missing-semicolon site -------------------------------------------------
+#[cfg(any())]
+pub fn missing_semicolon() -> i32 {
+    let x = 1
+    x + 2
+}
+
+// missing-comma in struct literal ---------------------------------------
+#[cfg(any())]
+pub fn missing_comma() -> (i32, i32) {
+    pub struct P { a: i32 b: i32 }
+    P { a: 1 b: 2 }
+}
+
+// add-explicit-type for unresolved local --------------------------------
+#[cfg(any())]
+pub fn missing_type() {
+    let v = (1, 2);   // suggested: `let v: (i32, i32)`
+    println!("{:?}", v);
+}
+
+// add-turbofish for unresolved generic ----------------------------------
+#[cfg(any())]
+pub fn missing_turbofish() {
+    let xs: Vec<i32> = (1..5).collect();   // (control: compiles)
+    let ys = (1..5).collect();             // suggested: `.collect::<Vec<_>>()`
+    let _ = (xs, ys);
+}
+
+// remove-unused-import quickfix ----------------------------------------
+#[cfg(any())]
+mod unused_import {
+    use std::collections::HashMap;
+    pub fn nothing_uses_hashmap() {}
+}
+
+// snake_case rename quickfix --------------------------------------------
+#[cfg(any())]
+pub fn for_snake_case() {
+    let MyVar = 1;       // suggested: rename to `my_var`
+    let _ = MyVar;
+}
+
+// dead_code allow vs delete --------------------------------------------
+#[cfg(any())]
+pub fn dead_helper() -> i32 { 99 }   // never called
+
+// unwrap_on_option fixit -----------------------------------------------
+#[cfg(any())]
+pub fn unwrap_on_option(o: Option<i32>) -> i32 {
+    o.unwrap()           // suggested: `o.unwrap_or_default()`
+}
+
+// let_else ergonomic fix -----------------------------------------------
+#[cfg(any())]
+pub fn for_let_else_ergo(o: Option<i32>) -> i32 {
+    if let Some(v) = o { v } else { return -1; }    // suggested: `let Some(v) = o else { return -1; };`
+}
+
+#[cfg(test)]
+mod tests {
+    // Smoke-only — quickfix sites are gated behind `cfg(any())`.
+    #[test] fn smoke() {}
+}
+```
+
+- [ ] **Step 14: `ra_workspace_edit_shapes/src/lib.rs` (~120 LoC)**
+
+```rust
+//! ra_workspace_edit_shapes — single fixture exercising every
+//! WorkspaceEdit variant from scope-report §4.6.
+
+#![allow(dead_code)]
+
+pub mod text_doc_edit_target {
+    pub fn add(a: i32, b: i32) -> i32 { a + b }
+}
+
+pub mod snippet_edit_target {
+    // Range used by `extract_function` which emits SnippetTextEdit with $0/$1.
+    pub fn for_snippet(input: i32) -> i32 {
+        let doubled = input * 2;
+        let bumped  = doubled + 7;
+        bumped.abs()
+    }
+}
+
+pub mod create_file_target {
+    // Stub module — split-file refactor will create new sibling files.
+    pub fn anchor() {}
+}
+
+pub mod rename_file_target {
+    // The whole module file is the rename target.
+    pub fn anchor() {}
+}
+
+pub mod delete_file_target {
+    pub fn anchor_to_delete() {}
+}
+
+pub mod change_annotations_target {
+    // Inline mod — extract_module emits changeAnnotations for the new file.
+    pub fn anchor() {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn smoke() { assert_eq!(text_doc_edit_target::add(1, 2), 3); }
+}
+```
+
+- [ ] **Step 15: `ra_term_search/src/lib.rs` (~80 LoC)**
+
+```rust
+//! ra_term_search — fixture for `term_search` synthesis (family K,
+//! primitive-only). The integration test targets the `todo!()` hole and
+//! asserts term_search returns at least one candidate term.
+
+#![allow(dead_code)]
+
+pub fn for_term_search(a: i32, b: i32, c: i32) -> i32 {
+    // Hole: rust-analyzer's term_search will offer expressions of type i32
+    // built from `a`, `b`, `c`, and arithmetic.
+    todo!("term_search target")
+}
+
+pub fn for_term_search_option(items: &[i32]) -> Option<i32> {
+    // Hole: term_search candidates include `items.first().copied()`,
+    // `items.iter().next().copied()`, etc.
+    todo!("term_search Option target")
+}
+
+#[cfg(test)]
+mod tests {
+    // No smoke tests — the fixture's sole purpose is to host the holes.
+    // Compile-time `todo!()` is fine; runtime would panic.
+}
+```
+
+- [ ] **Step 16: Pre-commit `cargo check --workspace`**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs
+cargo check --workspace 2>&1 | tail -25
+```
+
+Expected: every member crate compiles. The `ra_proc_macros` crate triggers `cargo` to download `serde`, `tokio`, `async-trait`, `clap` on first run (one-time fee). If the net is offline, expect a single failure on `ra_proc_macros`; the integration test for proc-macros (T15) honours `RA_PROC_MACROS_OFFLINE=1` and skips when set.
+
+- [ ] **Step 17: Commit T2**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/fixtures/calcrs/ra_glob_imports/ \
+        test/fixtures/calcrs/ra_ordering/ \
+        test/fixtures/calcrs/ra_generators_traits/ \
+        test/fixtures/calcrs/ra_generators_methods/ \
+        test/fixtures/calcrs/ra_convert_typeshape/ \
+        test/fixtures/calcrs/ra_convert_returntype/ \
+        test/fixtures/calcrs/ra_pattern_destructuring/ \
+        test/fixtures/calcrs/ra_lifetimes/ \
+        test/fixtures/calcrs/ra_proc_macros/ \
+        test/fixtures/calcrs/ra_ssr/ \
+        test/fixtures/calcrs/ra_macros/ \
+        test/fixtures/calcrs/ra_module_layouts/ \
+        test/fixtures/calcrs/ra_quickfixes/ \
+        test/fixtures/calcrs/ra_workspace_edit_shapes/ \
+        test/fixtures/calcrs/ra_term_search/ \
+        test/fixtures/calcrs/Cargo.lock
+
+git commit -m "$(cat <<'EOF'
+stage-1h(t2): flesh out 14 RA companion crates
+
+ra_glob_imports, ra_ordering, ra_generators_traits, ra_generators_methods,
+ra_convert_typeshape, ra_convert_returntype, ra_pattern_destructuring,
+ra_lifetimes, ra_proc_macros (only crate with crates.io deps:
+serde + serde_json + async-trait + clap + tokio), ra_ssr, ra_macros,
+ra_module_layouts (multi-file: mod.rs + adjacent), ra_quickfixes
+(cfg-gated broken sections), ra_workspace_edit_shapes,
+ra_term_search (todo! holes for term_search synthesis).
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1h-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+stage-1h(t2): bump submodule + ledger T2 close
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+**Verification:**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/fixtures/calcrs
+cargo check --workspace --quiet
+cargo test --workspace --no-run --quiet 2>&1 | tail -3
+```
+
+Expected: workspace check exits 0; `--no-run` test build exits 0 (no tests are *executed* here — that's slow; we just verify they all compile). If any crate emits a non-`dead_code` warning, fix it before declaring T2 green.
+
