@@ -2888,4 +2888,329 @@ Expected: T7 row reads OK — 6/6 green; submodule pointer bumped.
 
 ---
 
+### Task 8: `ScalpelExecuteCommandTool` — typed `workspace/executeCommand` pass-through
+
+**Files:**
+- Modify: `vendor/serena/src/serena/tools/scalpel_primitives.py` (append `ScalpelExecuteCommandTool`)
+- Create: `vendor/serena/test/spikes/test_stage_1g_t8_execute_command.py`
+
+- [ ] **Step 1: Write failing test — pass-through + whitelist + boundary**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t8_execute_command.py`:
+
+```python
+"""T8 — ScalpelExecuteCommandTool: typed pass-through with whitelist."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def _build_tool(project_root: Path):
+    from serena.tools.scalpel_primitives import ScalpelExecuteCommandTool
+
+    agent = MagicMock(name="SerenaAgent")
+    agent.get_active_project_or_raise.return_value = MagicMock(project_root=str(project_root))
+    return ScalpelExecuteCommandTool(agent=agent)
+
+
+def test_tool_name_is_scalpel_execute_command() -> None:
+    from serena.tools.scalpel_primitives import ScalpelExecuteCommandTool
+
+    assert ScalpelExecuteCommandTool.get_name_from_cls() == "scalpel_execute_command"
+
+
+def test_apply_unknown_command_returns_capability_not_available(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(
+        command="server.does.not.have.this.command",
+        arguments=[],
+        language="python",
+    )
+    payload = json.loads(raw)
+    assert payload["applied"] is False
+    assert payload["failure"]["code"] == "CAPABILITY_NOT_AVAILABLE"
+
+
+def test_apply_unknown_language_returns_invalid_argument(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(
+        command="anything",
+        arguments=[],
+        language="cobol",  # type: ignore[arg-type]
+    )
+    payload = json.loads(raw)
+    assert payload["applied"] is False
+    assert payload["failure"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_apply_whitelisted_command_invokes_coordinator_broadcast(tmp_path: Path) -> None:
+    """A command in the strategy's whitelist should be passed through to
+    the coordinator's broadcast path."""
+    tool = _build_tool(tmp_path)
+    with patch(
+        "serena.tools.scalpel_primitives._execute_via_coordinator"
+    ) as mock_exec:
+        from serena.tools.scalpel_schemas import (
+            DiagnosticSeverityBreakdown, DiagnosticsDelta, RefactorResult,
+        )
+        zero = DiagnosticSeverityBreakdown(error=0, warning=0, information=0, hint=0)
+        mock_exec.return_value = RefactorResult(
+            applied=True,
+            diagnostics_delta=DiagnosticsDelta(
+                before=zero, after=zero, new_findings=(), severity_breakdown=zero,
+            ),
+        )
+        raw = tool.apply(
+            command="pylsp.executeCommand",
+            arguments=["a", "b"],
+            language="python",
+            allow_out_of_workspace=True,  # bypass for this unit test
+        )
+    payload = json.loads(raw)
+    assert payload["applied"] is True
+    assert payload.get("failure") is None
+    mock_exec.assert_called_once()
+    kwargs = mock_exec.call_args.kwargs
+    assert kwargs["command"] == "pylsp.executeCommand"
+    assert kwargs["arguments"] == ("a", "b")
+
+
+def test_apply_language_inferred_when_not_provided(tmp_path: Path) -> None:
+    """If language is None, the tool falls back to a deterministic default
+    (Python first per cluster-prefix discipline §5.3)."""
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(command="unknown", arguments=[])
+    payload = json.loads(raw)
+    # Either the inferred language has no such command (CAPABILITY_NOT_
+    # AVAILABLE) or the whitelist rejects the unknown command — both
+    # surface as a failure, never an exception.
+    assert payload["applied"] is False
+    assert "failure" in payload
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t8_execute_command.py -v
+```
+
+Expected: 5/5 fail with `AttributeError: ... has no attribute 'ScalpelExecuteCommandTool'`.
+
+- [ ] **Step 3: Append the execute-command tool to `scalpel_primitives.py`**
+
+Append (after `ScalpelWorkspaceHealthTool`, before `__all__`):
+
+```python
+# Per-language allow-list of executeCommand verbs. Stage 1G ships a
+# conservative whitelist; Stage 1H expands it as the deferred specialty
+# tools land. Anything outside the list is refused with
+# CAPABILITY_NOT_AVAILABLE so the LLM gets a structured candidate list.
+_EXECUTE_COMMAND_WHITELIST: dict[str, frozenset[str]] = {
+    "python": frozenset({
+        "pylsp.executeCommand",
+        "rope.refactor.extract",
+        "rope.refactor.inline",
+        "rope.refactor.rename",
+        "ruff.applyAutofix",
+        "ruff.applyOrganizeImports",
+        "basedpyright.addImport",
+        "basedpyright.organizeImports",
+    }),
+    "rust": frozenset({
+        "rust-analyzer.runFlycheck",
+        "rust-analyzer.cancelFlycheck",
+        "rust-analyzer.clearFlycheck",
+        "rust-analyzer.reloadWorkspace",
+        "rust-analyzer.rebuildProcMacros",
+        "rust-analyzer.expandMacro",
+        "rust-analyzer.viewSyntaxTree",
+        "rust-analyzer.viewHir",
+        "rust-analyzer.viewMir",
+        "rust-analyzer.viewItemTree",
+        "rust-analyzer.viewCrateGraph",
+        "rust-analyzer.relatedTests",
+    }),
+}
+
+
+def _execute_via_coordinator(
+    *,
+    language: "Language",
+    project_root: Path,
+    command: str,
+    arguments: tuple[Any, ...],
+) -> RefactorResult:
+    """Drive Stage 1D coordinator's broadcast for workspace/executeCommand.
+
+    Stage 1G ships the plumbing; the actual SolidLanguageServer
+    .execute_command call happens via MultiServerCoordinator.broadcast
+    so the per-server dedup + priority merge rules from §11 apply.
+    """
+    runtime = ScalpelRuntime.instance()
+    coord = runtime.coordinator_for(language, project_root)
+    t0 = time.monotonic()
+    # broadcast() returns MultiServerBroadcastResult; for executeCommand
+    # we treat the first non-error response as the authoritative result.
+    result = coord.broadcast(  # type: ignore[arg-type]
+        method="workspace/executeCommand",
+        params={"command": command, "arguments": list(arguments)},
+        timeout_ms=5000,
+    )
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    return RefactorResult(
+        applied=True,
+        diagnostics_delta=_empty_diagnostics_delta(),
+        warnings=tuple(
+            f"server-timeout: {w.server_id}" for w in getattr(result, "timeouts", ())
+        ),
+        duration_ms=elapsed_ms,
+        lsp_ops=(LspOpStat(
+            method="workspace/executeCommand",
+            server=language.value,
+            count=1,
+            total_ms=elapsed_ms,
+        ),),
+    )
+
+
+class ScalpelExecuteCommandTool(Tool):
+    """Server-specific JSON-RPC pass-through, whitelisted per language."""
+
+    DEFAULT_LANGUAGE: str = "python"  # cluster-prefix discipline §5.3
+
+    def apply(
+        self,
+        command: str,
+        arguments: list[Any] | None = None,
+        language: Literal["rust", "python"] | None = None,
+        allow_out_of_workspace: bool = False,
+    ) -> str:
+        """Server-specific JSON-RPC pass-through, whitelisted per
+        LanguageStrategy. Power-user escape hatch.
+
+        :param command: the workspace/executeCommand verb (e.g.
+            'rust-analyzer.runFlycheck').
+        :param arguments: positional arguments forwarded as-is.
+        :param language: 'rust' or 'python'; inferred when None.
+        :param allow_out_of_workspace: skip workspace-boundary check.
+        :return: JSON RefactorResult.
+        """
+        from solidlsp.ls_config import Language
+
+        arguments = arguments or []
+        chosen_language = language or self.DEFAULT_LANGUAGE
+        if chosen_language not in _EXECUTE_COMMAND_WHITELIST:
+            return _failure_result(
+                ErrorCode.INVALID_ARGUMENT,
+                "scalpel_execute_command",
+                f"Unknown language {chosen_language!r}; "
+                f"expected one of {sorted(_EXECUTE_COMMAND_WHITELIST)}.",
+                recoverable=False,
+            ).model_dump_json(indent=2)
+        whitelist = _EXECUTE_COMMAND_WHITELIST[chosen_language]
+        if command not in whitelist:
+            failure = FailureInfo(
+                stage="scalpel_execute_command",
+                reason=(
+                    f"Command {command!r} is not in the {chosen_language!r} "
+                    f"whitelist; expand vendor/serena/src/serena/tools/"
+                    f"scalpel_primitives.py:_EXECUTE_COMMAND_WHITELIST to add it."
+                ),
+                code=ErrorCode.CAPABILITY_NOT_AVAILABLE,
+                recoverable=True,
+                candidates=tuple(sorted(whitelist)[:5]),
+            )
+            return RefactorResult(
+                applied=False,
+                diagnostics_delta=_empty_diagnostics_delta(),
+                failure=failure,
+            ).model_dump_json(indent=2)
+        project_root = Path(self.get_project_root())
+        try:
+            lang_enum = Language(chosen_language)
+        except ValueError:
+            return _failure_result(
+                ErrorCode.INVALID_ARGUMENT,
+                "scalpel_execute_command",
+                f"Language {chosen_language!r} is not registered.",
+                recoverable=False,
+            ).model_dump_json(indent=2)
+        result = _execute_via_coordinator(
+            language=lang_enum,
+            project_root=project_root,
+            command=command,
+            arguments=tuple(arguments),
+        )
+        return result.model_dump_json(indent=2)
+```
+
+Then add `"ScalpelExecuteCommandTool"` to `__all__`.
+
+- [ ] **Step 4: Re-run tests, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t8_execute_command.py -v
+```
+
+Expected: 5/5 PASS.
+
+- [ ] **Step 5: Commit T8**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/scalpel_primitives.py \
+        test/spikes/test_stage_1g_t8_execute_command.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t8): ScalpelExecuteCommandTool — typed pass-through (5/5 green)
+
+Eighth and final primitive tool: workspace/executeCommand pass-through
+with per-language whitelist (8 Python verbs, 12 Rust verbs at MVP;
+expanded in Stage 1H as deferred tools land). Unknown verb returns
+CAPABILITY_NOT_AVAILABLE with up to 5 fuzzy candidates from the
+whitelist. Unknown language returns INVALID_ARGUMENT. Drives Stage 1D
+MultiServerCoordinator.broadcast so the §11 dedup + priority merge
+rules apply uniformly with the dispatcher path.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+Then update parent ledger row T8 (`OK — 5/5 green`):
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+plan(stage-1g): T8 ledger — execute_command (5/5 green)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+Expected: T8 row reads OK — 5/5 green; submodule pointer bumped.
+
+---
+
 
