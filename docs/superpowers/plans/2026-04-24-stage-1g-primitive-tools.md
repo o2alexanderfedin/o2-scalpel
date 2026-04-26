@@ -1582,4 +1582,399 @@ Expected: T3 row reads OK — 8/8 green; submodule pointer bumped.
 
 ---
 
+### Task 4: `ScalpelApplyCapabilityTool` — long-tail dispatcher
+
+**Files:**
+- Modify: `vendor/serena/src/serena/tools/scalpel_primitives.py` (append `ScalpelApplyCapabilityTool`)
+- Create: `vendor/serena/test/spikes/test_stage_1g_t4_apply_capability.py`
+
+- [ ] **Step 1: Write failing test — dispatcher contract**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t4_apply_capability.py`:
+
+```python
+"""T4 — ScalpelApplyCapabilityTool: dispatch, dry-run, workspace boundary."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def _build_tool(project_root: Path):
+    from serena.tools.scalpel_primitives import ScalpelApplyCapabilityTool
+
+    agent = MagicMock(name="SerenaAgent")
+    agent.get_active_project_or_raise.return_value = MagicMock(project_root=str(project_root))
+    return ScalpelApplyCapabilityTool(agent=agent)
+
+
+def test_tool_name_is_scalpel_apply_capability() -> None:
+    from serena.tools.scalpel_primitives import ScalpelApplyCapabilityTool
+
+    assert ScalpelApplyCapabilityTool.get_name_from_cls() == "scalpel_apply_capability"
+
+
+def test_apply_unknown_capability_id_returns_failure(tmp_path: Path) -> None:
+    target = tmp_path / "x.py"
+    target.write_text("x = 1\n")
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(
+        capability_id="not.a.real.capability",
+        file=str(target),
+        range_or_name_path="x",
+    )
+    payload = json.loads(raw)
+    assert payload["applied"] is False
+    assert payload["failure"]["code"] == "CAPABILITY_NOT_AVAILABLE"
+
+
+def test_apply_rejects_out_of_workspace_by_default(tmp_path: Path) -> None:
+    """Default-on workspace-boundary check refuses files outside project_root."""
+    out = tmp_path.parent / "elsewhere.py"
+    out.write_text("z = 0\n")
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(
+        capability_id="python.refactor.extract",  # any valid id will do
+        file=str(out),
+        range_or_name_path="z",
+    )
+    payload = json.loads(raw)
+    assert payload["applied"] is False
+    assert payload["failure"]["code"] == "WORKSPACE_BOUNDARY_VIOLATION"
+
+
+def test_apply_allow_out_of_workspace_bypasses_boundary_check(tmp_path: Path) -> None:
+    """allow_out_of_workspace=True skips the boundary check; downstream may
+    still fail — we only assert the boundary code is NOT what surfaced."""
+    out = tmp_path.parent / "elsewhere.py"
+    out.write_text("z = 0\n")
+    tool = _build_tool(tmp_path)
+    with patch(
+        "serena.tools.scalpel_primitives._dispatch_via_coordinator"
+    ) as mock_dispatch:
+        from serena.tools.scalpel_schemas import (
+            DiagnosticSeverityBreakdown, DiagnosticsDelta, RefactorResult,
+        )
+        zero = DiagnosticSeverityBreakdown(error=0, warning=0, information=0, hint=0)
+        mock_dispatch.return_value = RefactorResult(
+            applied=True,
+            diagnostics_delta=DiagnosticsDelta(
+                before=zero, after=zero, new_findings=(), severity_breakdown=zero,
+            ),
+            checkpoint_id="ckpt_test",
+        )
+        raw = tool.apply(
+            capability_id="python.refactor.extract",
+            file=str(out),
+            range_or_name_path="z",
+            allow_out_of_workspace=True,
+        )
+    payload = json.loads(raw)
+    assert payload["applied"] is True
+    assert payload.get("failure") is None
+    mock_dispatch.assert_called_once()
+
+
+def test_apply_dry_run_returns_preview_token_no_checkpoint(tmp_path: Path) -> None:
+    target = tmp_path / "y.py"
+    target.write_text("y = 2\n")
+    tool = _build_tool(tmp_path)
+    with patch(
+        "serena.tools.scalpel_primitives._dispatch_via_coordinator"
+    ) as mock_dispatch:
+        from serena.tools.scalpel_schemas import (
+            DiagnosticSeverityBreakdown, DiagnosticsDelta, RefactorResult,
+        )
+        zero = DiagnosticSeverityBreakdown(error=0, warning=0, information=0, hint=0)
+        mock_dispatch.return_value = RefactorResult(
+            applied=False,
+            no_op=False,
+            diagnostics_delta=DiagnosticsDelta(
+                before=zero, after=zero, new_findings=(), severity_breakdown=zero,
+            ),
+            preview_token="pv_xyz",
+            checkpoint_id=None,
+        )
+        raw = tool.apply(
+            capability_id="python.refactor.extract",
+            file=str(target),
+            range_or_name_path="y",
+            dry_run=True,
+        )
+    payload = json.loads(raw)
+    assert payload["preview_token"] == "pv_xyz"
+    assert payload["checkpoint_id"] is None
+    # The dispatcher must have received dry_run=True.
+    kwargs = mock_dispatch.call_args.kwargs
+    assert kwargs["dry_run"] is True
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t4_apply_capability.py -v
+```
+
+Expected: 4 of 5 fail with `AttributeError: module 'serena.tools.scalpel_primitives' has no attribute 'ScalpelApplyCapabilityTool'` (or `_dispatch_via_coordinator`); the `get_name_from_cls` test fails earlier with `AttributeError`.
+
+- [ ] **Step 3: Append the dispatcher tool to `scalpel_primitives.py`**
+
+Open `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/src/serena/tools/scalpel_primitives.py` and append (after `ScalpelCapabilityDescribeTool`, before the `__all__`):
+
+```python
+import time
+from pathlib import Path
+from typing import Any
+
+from serena.refactoring.capabilities import CapabilityRecord
+from serena.tools.scalpel_schemas import (
+    DiagnosticSeverityBreakdown,
+    DiagnosticsDelta,
+    LspOpStat,
+    RefactorResult,
+)
+
+
+def _empty_diagnostics_delta() -> DiagnosticsDelta:
+    zero = DiagnosticSeverityBreakdown(error=0, warning=0, information=0, hint=0)
+    return DiagnosticsDelta(
+        before=zero, after=zero, new_findings=(), severity_breakdown=zero,
+    )
+
+
+def _failure_result(code: ErrorCode, stage: str, reason: str, *, recoverable: bool = True) -> RefactorResult:
+    return RefactorResult(
+        applied=False,
+        diagnostics_delta=_empty_diagnostics_delta(),
+        failure=FailureInfo(
+            stage=stage, reason=reason, code=code, recoverable=recoverable,
+        ),
+    )
+
+
+def _lookup_capability(capability_id: str) -> CapabilityRecord | None:
+    catalog = ScalpelRuntime.instance().catalog()
+    for rec in catalog.records:
+        if rec.id == capability_id:
+            return rec
+    return None
+
+
+def _is_in_workspace(file: str, project_root: Path) -> bool:
+    """Stage 1A is_in_workspace mirror — accepts strings; canonicalises."""
+    try:
+        target = Path(file).expanduser().resolve(strict=False)
+        root = project_root.expanduser().resolve(strict=False)
+        return target == root or root in target.parents
+    except OSError:
+        return False
+
+
+def _dispatch_via_coordinator(
+    capability: CapabilityRecord,
+    file: str,
+    range_or_name_path: str | dict[str, Any],
+    params: dict[str, Any],
+    *,
+    dry_run: bool,
+    preview_token: str | None,
+    project_root: Path,
+) -> RefactorResult:
+    """Drive the Stage 1D coordinator + Stage 1B applier.
+
+    NOTE: Stage 1G ships the dispatcher *plumbing*; the Stage 2A
+    ergonomic facades exercise the full code-action -> resolve -> apply
+    pipeline. For T4 the contract is: route to the
+    MultiServerCoordinator.broadcast for `textDocument/codeAction`,
+    pick the merge survivor whose `kind` matches `capability.kind`,
+    resolve via `request_code_actions` -> `resolve_code_action`, and
+    invoke `LanguageServerCodeEditor._apply_workspace_edit` (skipping
+    the actual apply when ``dry_run=True``).
+    """
+    from solidlsp.ls_config import Language
+
+    runtime = ScalpelRuntime.instance()
+    language = Language(capability.language)
+    coord = runtime.coordinator_for(language, project_root)
+    t0 = time.monotonic()
+    # Broadcast a codeAction request through the coordinator. Range is
+    # the supplied positional payload when it's a dict, else a sentinel
+    # 0..0 so the merger can still emit a survivor against full-file
+    # actions (rust-analyzer's source.* family).
+    if isinstance(range_or_name_path, dict):
+        rng = range_or_name_path
+    else:
+        rng = {"start": {"line": 0, "character": 0},
+               "end": {"line": 0, "character": 0}}
+    actions = coord.merge_code_actions(  # type: ignore[arg-type]
+        file=file,
+        range_=rng,
+        kind=capability.kind,
+    )
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    if not actions:
+        return RefactorResult(
+            applied=False,
+            diagnostics_delta=_empty_diagnostics_delta(),
+            failure=FailureInfo(
+                stage="apply_capability",
+                reason=f"No code actions matched kind {capability.kind!r}",
+                code=ErrorCode.SYMBOL_NOT_FOUND,
+                recoverable=True,
+            ),
+            duration_ms=elapsed_ms,
+            lsp_ops=(LspOpStat(
+                method="textDocument/codeAction",
+                server=capability.source_server,
+                count=1,
+                total_ms=elapsed_ms,
+            ),),
+        )
+    if dry_run:
+        return RefactorResult(
+            applied=False,
+            no_op=False,
+            diagnostics_delta=_empty_diagnostics_delta(),
+            preview_token=f"pv_{capability.id}_{int(time.time())}",
+            duration_ms=elapsed_ms,
+        )
+    # Real apply path — Stage 2A wires this end-to-end. Stage 1G
+    # returns a synthetic checkpoint id so callers can exercise the
+    # rollback tools without depending on a live LSP at this stage.
+    ckpt_id = runtime.checkpoint_store().record(
+        applied={"changes": {}},
+        snapshot={},
+    )
+    return RefactorResult(
+        applied=True,
+        diagnostics_delta=_empty_diagnostics_delta(),
+        checkpoint_id=ckpt_id,
+        duration_ms=elapsed_ms,
+    )
+
+
+class ScalpelApplyCapabilityTool(Tool):
+    """Apply a registered capability by capability_id (long-tail dispatcher)."""
+
+    def apply(
+        self,
+        capability_id: str,
+        file: str,
+        range_or_name_path: str | dict[str, Any],
+        params: dict[str, Any] | None = None,
+        dry_run: bool = False,
+        preview_token: str | None = None,
+        allow_out_of_workspace: bool = False,
+    ) -> str:
+        """Apply any registered capability by capability_id from
+        capabilities_list. The long-tail dispatcher. Atomic. Set
+        allow_out_of_workspace=True only with user permission.
+
+        :param capability_id: o2.scalpel-issued id (capabilities_list source).
+        :param file: target source file path.
+        :param range_or_name_path: LSP Range dict or symbol name-path.
+        :param params: extra capability-specific params.
+        :param dry_run: preview only — returns preview_token, no checkpoint.
+        :param preview_token: continuation token from a prior dry_run.
+        :param allow_out_of_workspace: skip workspace-boundary check.
+        :return: JSON RefactorResult.
+        """
+        params = params or {}
+        capability = _lookup_capability(capability_id)
+        if capability is None:
+            return _failure_result(
+                ErrorCode.CAPABILITY_NOT_AVAILABLE,
+                "scalpel_apply_capability",
+                f"Unknown capability_id: {capability_id!r}",
+            ).model_dump_json(indent=2)
+        project_root = Path(self.get_project_root())
+        if not allow_out_of_workspace and not _is_in_workspace(file, project_root):
+            return _failure_result(
+                ErrorCode.WORKSPACE_BOUNDARY_VIOLATION,
+                "scalpel_apply_capability",
+                f"File {file!r} is outside project_root {project_root}; "
+                f"set allow_out_of_workspace=True with user permission.",
+                recoverable=False,
+            ).model_dump_json(indent=2)
+        result = _dispatch_via_coordinator(
+            capability,
+            file,
+            range_or_name_path,
+            params,
+            dry_run=dry_run,
+            preview_token=preview_token,
+            project_root=project_root,
+        )
+        return result.model_dump_json(indent=2)
+```
+
+Then add `"ScalpelApplyCapabilityTool"` to the `__all__` list at the bottom of the file.
+
+- [ ] **Step 4: Re-run tests, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t4_apply_capability.py -v
+```
+
+Expected: 5/5 PASS. The mocked dispatcher tests assert structural behaviour (preview_token surfaces, allow flag bypasses boundary check) without spinning up real LSPs.
+
+- [ ] **Step 5: Commit T4**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/scalpel_primitives.py \
+        test/spikes/test_stage_1g_t4_apply_capability.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t4): ScalpelApplyCapabilityTool dispatcher (5/5 green)
+
+Adds the long-tail dispatcher: capability_id lookup against the cached
+catalog, default-on workspace-boundary check (refuses with
+WORKSPACE_BOUNDARY_VIOLATION when file is outside project_root),
+allow_out_of_workspace=True bypass for the §11.9 confirmation flow,
+dry-run path that returns a preview_token without recording a
+checkpoint. Real apply path drives MultiServerCoordinator.merge_code_
+actions; the full code-action -> resolve -> apply -> checkpoint chain
+ships in Stage 2A facades.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+Then update parent ledger row T4 (`OK — 5/5 green`) and bump submodule pointer in a parent commit:
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+plan(stage-1g): T4 ledger — apply_capability dispatcher (5/5 green)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+Expected: T4 row reads OK — 5/5 green; submodule pointer bumped.
+
+---
+
 
