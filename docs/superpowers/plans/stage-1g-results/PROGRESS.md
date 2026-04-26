@@ -15,4 +15,5 @@ Parent branch: `feature/stage-1g-primitive-tools`
 | T6 | ScalpelRollbackTool + TransactionRollbackTool       | 07bd6627 | OK — 6/6 green | — |
 | T7 | ScalpelWorkspaceHealthTool                          | 660b3be5 | OK — 6/6 green | CapabilityCatalog.hash() to be added in Stage 1F follow-up |
 | T8 | ScalpelExecuteCommandTool                           | 1faf394c | OK — 5/5 green | broadcast() kwargs= sig adapted (plan deviation) |
-| T9 | __init__ re-export + smoke + ff-merge + tag         | _pending_ | _pending_ | — |
+| T9 | __init__ re-export + smoke + ff-merge + tag         | 98352836 | OK — 5/5 green; full regression 448 passed, 1 skipped; tag `stage-1g-primitive-tools-complete` | — |
+| 1G | **Stage 1G complete** | 98352836 | OK — 57/57 Stage 1G green; tag `stage-1g-primitive-tools-complete` | CapabilityCatalog.hash() follow-up; Stage 2A wires real spawn_fn / facades |
