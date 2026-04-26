@@ -10,7 +10,7 @@ Parent branch: `feature/stage-1j-plugin-skill-generator` (off `develop` @ `8ed62
 | T1 | Pydantic schemas (PluginManifest, SkillFrontmatter, MarketplaceManifest) | edd5de0c | OK — 5/5 green | HttpUrl→str+regex (plan deviation, Pyright cleanliness) |
 | T2 | `_render_plugin_json` | aeeb08b0 | OK — 3/3 green | — |
 | T3 | `_render_mcp_json` | f4f30ad3 | OK — 3/3 green | — |
-| T4 | `_render_marketplace_json` | _pending_ | _pending_ | — |
+| T4 | `_render_marketplace_json` | 1feffb9a | OK — 3/3 green | — |
 | T5 | `_render_skill_for_facade` | _pending_ | _pending_ | — |
 | T6 | `_render_readme` | _pending_ | _pending_ | — |
 | T7 | `_render_session_start_hook` | _pending_ | _pending_ | — |
