@@ -1733,3 +1733,401 @@ Co-Authored-By: AI Hive(R) <noreply@o2.services>"
 Update PROGRESS T5 row to `OUTCOME=DONE`.
 
 ---
+
+### Task 6: E2E scenarios E9 + E9-py — semantic equivalence (dual-lane)
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e9_semantic_equivalence.py`
+
+**Scope:** Dual-lane parametrized scenario. For each language, apply the full Stage 2A facade pipeline (split_file → extract → inline) end-to-end, then assert the test suite (`cargo test` / `pytest --doctest-modules`) yields byte-identical pass/fail counts vs. the baseline. The scope-report §15.1 reconciles E9 and E9-py into one parametrized test.
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_e2e_e9_semantic_equivalence.py`:
+
+```python
+"""E2E scenarios E9 + E9-py — semantic equivalence (dual-lane).
+
+Maps to scope-report §15.1 rows E9/E9-py: "Pre/post-refactor `cargo test` /
+`pytest --doctest-modules` byte-identical on `calcrs` and `calcpy`".
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+def _run_cargo_test(root: Path, cargo_bin: str) -> tuple[int, int, int]:
+    proc = subprocess.run(
+        [cargo_bin, "test", "--quiet"],
+        cwd=str(root), capture_output=True, text=True, timeout=180,
+    )
+    passed = failed = ignored = 0
+    for line in proc.stdout.splitlines():
+        if line.startswith("test result:"):
+            for token in line.split():
+                if token.endswith(";") and token[:-1].isdigit():
+                    pass
+            # canonical line: "test result: ok. N passed; M failed; K ignored; ..."
+            parts = line.split()
+            for i, tok in enumerate(parts):
+                if tok == "passed;":
+                    passed += int(parts[i - 1])
+                elif tok == "failed;":
+                    failed += int(parts[i - 1])
+                elif tok == "ignored;":
+                    ignored += int(parts[i - 1])
+    return proc.returncode, passed, failed
+
+
+def _run_pytest_doctest(root: Path, python_bin: str) -> tuple[int, int, int]:
+    proc = subprocess.run(
+        [python_bin, "-m", "pytest", "-q", "--doctest-modules", "calcpy", "tests"],
+        cwd=str(root), capture_output=True, text=True, timeout=120,
+        env={"PYTHONPATH": str(root), "PATH": "/usr/bin:/bin"},
+    )
+    passed = failed = 0
+    for line in proc.stdout.splitlines():
+        if "passed" in line or "failed" in line:
+            tokens = line.replace(",", "").split()
+            for i, tok in enumerate(tokens):
+                if tok == "passed" and tokens[i - 1].isdigit():
+                    passed += int(tokens[i - 1])
+                elif tok == "failed" and tokens[i - 1].isdigit():
+                    failed += int(tokens[i - 1])
+    return proc.returncode, passed, failed
+
+
+@pytest.mark.e2e
+def test_e9_rust_semantic_equivalence(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+    cargo_bin: str,
+    wall_clock_record,
+) -> None:
+    lib_rs = calcrs_e2e_root / "src" / "lib.rs"
+    pre_rc, pre_pass, pre_fail = _run_cargo_test(calcrs_e2e_root, cargo_bin)
+    assert pre_rc == 0
+    assert pre_pass == 4 and pre_fail == 0
+
+    # Step 1 of pipeline: split into 4 sibling modules.
+    split_json = mcp_driver_rust.split_file(
+        file=str(lib_rs),
+        groups={
+            "ast": ["Expr"], "errors": ["CalcError"],
+            "parser": ["parse"], "eval": ["eval"],
+        },
+        parent_layout="file",
+        reexport_policy="preserve_public_api",
+        dry_run=False,
+        language="rust",
+    )
+    split = RefactorResult.model_validate_json(split_json)
+    assert split.applied is True
+
+    # Step 2 of pipeline: extract a sub-expression in `eval` into a helper.
+    eval_rs = calcrs_e2e_root / "src" / "eval.rs"
+    extract_json = mcp_driver_rust.extract(
+        file=str(eval_rs),
+        name_path="eval",
+        target="function",
+        new_name="eval_div",
+        visibility="private",
+        dry_run=False,
+        language="rust",
+    )
+    extract = RefactorResult.model_validate_json(extract_json)
+    assert extract.applied is True
+
+    # Post-pipeline byte-identity on test counts.
+    post_rc, post_pass, post_fail = _run_cargo_test(calcrs_e2e_root, cargo_bin)
+    assert post_rc == 0
+    assert (post_pass, post_fail) == (pre_pass, pre_fail), (
+        f"semantic drift on calcrs: pre=({pre_pass},{pre_fail}) "
+        f"post=({post_pass},{post_fail})"
+    )
+
+
+@pytest.mark.e2e
+def test_e9_py_semantic_equivalence(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    python_bin: str,
+    wall_clock_record,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    pre_rc, pre_pass, pre_fail = _run_pytest_doctest(calcpy_e2e_root, python_bin)
+    assert pre_rc == 0
+    assert pre_pass >= 4 and pre_fail == 0
+
+    split_json = mcp_driver_python.split_file(
+        file=str(src),
+        groups={
+            "ast": ["Num", "Add", "Sub", "Mul", "Div", "Expr"],
+            "errors": ["CalcError", "ParseError", "DivisionByZero"],
+            "parser": ["parse"],
+            "evaluator": ["evaluate"],
+        },
+        parent_layout="file",
+        reexport_policy="preserve_public_api",
+        dry_run=False,
+        language="python",
+    )
+    split = RefactorResult.model_validate_json(split_json)
+    assert split.applied is True
+
+    parser_py = calcpy_e2e_root / "calcpy" / "parser.py"
+    extract_json = mcp_driver_python.extract(
+        file=str(parser_py),
+        name_path="parse",
+        target="function",
+        new_name="_parse_binop",
+        dry_run=False,
+        language="python",
+    )
+    extract = RefactorResult.model_validate_json(extract_json)
+    assert extract.applied is True
+
+    post_rc, post_pass, post_fail = _run_pytest_doctest(calcpy_e2e_root, python_bin)
+    assert post_rc == 0
+    assert (post_pass, post_fail) == (pre_pass, pre_fail), (
+        f"semantic drift on calcpy: pre=({pre_pass},{pre_fail}) "
+        f"post=({post_pass},{post_fail})"
+    )
+```
+
+- [ ] **Step 2: Run the test**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_e9_semantic_equivalence.py -v -m e2e --tb=short
+```
+
+Expected: 2 PASSED in ~3–8 min (heaviest scenario; two LSP cold-starts + two test-suite runs per lane).
+
+If `(post_pass, post_fail) != (pre_pass, pre_fail)` FAILs:
+- Likely cause: the extract introduced a regression that the LSP did not catch (e.g., wrong scope rebinding). Inspect the post-pipeline file in the failure message and re-run `cargo test` / `pytest -v` manually to see which test broke.
+
+- [ ] **Step 3: Commit T6**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e9_semantic_equivalence.py
+git commit -m "test(stage-2b): T6 — E9 + E9-py semantic equivalence dual-lane
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T6 — bump submodule (E9 + E9-py scenarios)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T6 row to `OUTCOME=DONE`.
+
+---
+
+### Task 7: E2E scenarios E10 + E10-py + E13-py — rename multi-file + organize-imports merge
+
+**Files:**
+- Create: `vendor/serena/test/e2e/test_e2e_e10_rename_multi_file.py`
+
+**Scope:** Three sub-tests under one module:
+1. `test_e10_rust_rename_across_modules` — rename a public symbol that is referenced from `tests/byte_identity_test.rs` and from a sibling module (post-split fixture); assert all references update; `cargo test` passes byte-identically.
+2. `test_e10_py_rename_preserves_dunder_all` — rename `evaluate` → `compute` on the calcpy package; assert `__all__` is updated and `from calcpy import *` yields the same name set (with `compute` substituted for `evaluate`).
+3. `test_e13_py_organize_imports_single_action` — invoke `imports_organize` on a calcpy file; assert exactly one `source.organizeImports` action surfaces in the `RefactorResult.diff` (Stage 1D dedup-by-equivalence + priority merge confirmed end-to-end).
+
+- [ ] **Step 1: Write the failing test**
+
+Write `vendor/serena/test/e2e/test_e2e_e10_rename_multi_file.py`:
+
+```python
+"""E2E scenarios E10 + E10-py + E13-py.
+
+Maps to scope-report §15.1:
+- E10 — `scalpel_rename` regression (Rust + Python).
+- E10-py — `__all__` preservation (Python).
+- E13-py — Multi-server merge: only one organize-imports action surfaces.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from serena.tools.scalpel_schemas import RefactorResult
+
+
+@pytest.mark.e2e
+def test_e10_rust_rename_across_modules(
+    mcp_driver_rust,
+    calcrs_e2e_root: Path,
+    cargo_bin: str,
+    wall_clock_record,
+) -> None:
+    lib_rs = calcrs_e2e_root / "src" / "lib.rs"
+
+    # Rename `parse` → `parse_expr` everywhere.
+    rename_json = mcp_driver_rust.rename(
+        file=str(lib_rs),
+        name_path="parser/parse",
+        new_name="parse_expr",
+        dry_run=False,
+        language="rust",
+    )
+    rename = RefactorResult.model_validate_json(rename_json)
+    assert rename.applied is True, f"rename failed: {rename_json}"
+    assert rename.checkpoint_id is not None
+
+    # All references updated, including in tests/byte_identity_test.rs.
+    test_rs = calcrs_e2e_root / "tests" / "byte_identity_test.rs"
+    test_text = test_rs.read_text(encoding="utf-8")
+    assert "parse_expr(" in test_text
+    assert "parse(" not in test_text or "parse_expr(" in test_text
+
+    # cargo test still passes — byte-identity on counts.
+    proc = subprocess.run(
+        [cargo_bin, "test", "--quiet"],
+        cwd=str(calcrs_e2e_root), capture_output=True, text=True, timeout=180,
+    )
+    assert proc.returncode == 0, f"cargo test failed post-rename:\n{proc.stdout}"
+    assert "test result: ok. 4 passed" in proc.stdout
+
+
+@pytest.mark.e2e
+def test_e10_py_rename_preserves_dunder_all(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    python_bin: str,
+    wall_clock_record,
+) -> None:
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    init = calcpy_e2e_root / "calcpy" / "__init__.py"
+
+    # Capture pre-rename name set.
+    pre_proc = subprocess.run(
+        [python_bin, "-c",
+         "import calcpy; print(sorted(getattr(calcpy, '__all__', dir(calcpy))))"],
+        cwd=str(calcpy_e2e_root), capture_output=True, text=True, timeout=20,
+        env={"PYTHONPATH": str(calcpy_e2e_root), "PATH": "/usr/bin:/bin"},
+    )
+    assert pre_proc.returncode == 0, pre_proc.stderr
+    pre_names = set(eval(pre_proc.stdout.strip()))  # noqa: S307 (controlled input)
+    assert "evaluate" in pre_names
+
+    rename_json = mcp_driver_python.rename(
+        file=str(src),
+        name_path="evaluate",
+        new_name="compute",
+        dry_run=False,
+        language="python",
+    )
+    rename = RefactorResult.model_validate_json(rename_json)
+    assert rename.applied is True, f"rename failed: {rename_json}"
+
+    # __all__ preservation: `evaluate` is gone, `compute` is present.
+    init_text = init.read_text(encoding="utf-8")
+    assert "compute" in init_text, "__all__ did not gain `compute`"
+    assert (
+        '"evaluate"' not in init_text and "'evaluate'" not in init_text
+    ), "__all__ still references the old name `evaluate`"
+
+    # Post-rename: `from calcpy import *` yields the same name-set with the
+    # rename applied (set difference = {evaluate} → {compute}).
+    post_proc = subprocess.run(
+        [python_bin, "-c",
+         "import calcpy; print(sorted(getattr(calcpy, '__all__', dir(calcpy))))"],
+        cwd=str(calcpy_e2e_root), capture_output=True, text=True, timeout=20,
+        env={"PYTHONPATH": str(calcpy_e2e_root), "PATH": "/usr/bin:/bin"},
+    )
+    assert post_proc.returncode == 0, post_proc.stderr
+    post_names = set(eval(post_proc.stdout.strip()))  # noqa: S307
+    assert post_names - pre_names == {"compute"}
+    assert pre_names - post_names == {"evaluate"}
+
+
+@pytest.mark.e2e
+def test_e13_py_organize_imports_single_action(
+    mcp_driver_python,
+    calcpy_e2e_root: Path,
+    wall_clock_record,
+) -> None:
+    """E13-py — multi-server merge: pylsp-rope + basedpyright + ruff all
+    advertise `source.organizeImports`. The Stage 1D coordinator must
+    dedup-by-equivalence so exactly ONE action lands in the result.
+    """
+    src = calcpy_e2e_root / "calcpy" / "calcpy.py"
+    # Inject a redundant + unsorted import to give organize-imports work to do.
+    src.write_text(
+        "import sys\nimport os\nimport sys\n" + src.read_text(encoding="utf-8")
+    )
+
+    organize_json = mcp_driver_python.imports_organize(
+        files=[str(src)],
+        engine="auto",
+        dry_run=False,
+        language="python",
+    )
+    organize = RefactorResult.model_validate_json(organize_json)
+    assert organize.applied is True, f"imports_organize failed: {organize_json}"
+
+    # Provenance: exactly one server's edit landed (priority + dedup); the
+    # other two were suppressed. `RefactorResult.applied_actions` (Stage 1G
+    # field) is a list of provenance entries.
+    actions = organize.applied_actions or []
+    organize_actions = [
+        a for a in actions
+        if a.kind == "source.organizeImports" or a.kind == "source.organizeImports.ruff"
+    ]
+    assert len(organize_actions) == 1, (
+        f"expected exactly one organizeImports action; got "
+        f"{[a.kind + '@' + a.provenance for a in organize_actions]}"
+    )
+
+    # Sanity: duplicate `import sys` removed; alphabetical order.
+    text = src.read_text(encoding="utf-8")
+    assert text.count("import sys\n") == 1, "duplicate `import sys` not removed"
+```
+
+- [ ] **Step 2: Run the test**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+O2_SCALPEL_RUN_E2E=1 PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/e2e/test_e2e_e10_rename_multi_file.py -v -m e2e --tb=short
+```
+
+Expected: 3 PASSED in ~2–4 min.
+
+If `len(organize_actions) == 1` FAILs with 2+ actions:
+- Stage 1D `MultiServerCoordinator.merge_code_actions` dedup-by-equivalence rule did not collapse identical edits. Verify that `_normalize_kind("source.organizeImports.ruff")` and `_normalize_kind("source.organizeImports")` produce the same canonical key, AND that the `EditEquivalence` hash treats whitespace-equivalent `WorkspaceEdit`s as equal.
+
+- [ ] **Step 3: Commit T7**
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add test/e2e/test_e2e_e10_rename_multi_file.py
+git commit -m "test(stage-2b): T7 — E10 rust rename + E10-py __all__ + E13-py organize-imports merge
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+git rev-parse HEAD
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-2b-results/PROGRESS.md
+git commit -m "chore(stage-2b): T7 — bump submodule (E10 + E10-py + E13-py scenarios)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>"
+```
+
+Update PROGRESS T7 row to `OUTCOME=DONE`.
+
+---
