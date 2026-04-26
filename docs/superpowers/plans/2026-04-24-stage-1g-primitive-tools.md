@@ -2634,4 +2634,258 @@ Expected: T6 row reads OK — 6/6 green; submodule pointer bumped.
 
 ---
 
+### Task 7: `ScalpelWorkspaceHealthTool` — per-language LSP probe
+
+**Files:**
+- Modify: `vendor/serena/src/serena/tools/scalpel_primitives.py` (append `ScalpelWorkspaceHealthTool`)
+- Create: `vendor/serena/test/spikes/test_stage_1g_t7_workspace_health.py`
+
+- [ ] **Step 1: Write failing test — health probe**
+
+Create `/Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena/test/spikes/test_stage_1g_t7_workspace_health.py`:
+
+```python
+"""T7 — ScalpelWorkspaceHealthTool: per-language ServerHealth aggregate."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime() -> None:
+    from serena.tools.scalpel_runtime import ScalpelRuntime
+
+    ScalpelRuntime.reset_for_testing()
+    yield
+    ScalpelRuntime.reset_for_testing()
+
+
+def _build_tool(project_root: Path):
+    from serena.tools.scalpel_primitives import ScalpelWorkspaceHealthTool
+
+    agent = MagicMock(name="SerenaAgent")
+    agent.get_active_project_or_raise.return_value = MagicMock(project_root=str(project_root))
+    return ScalpelWorkspaceHealthTool(agent=agent)
+
+
+def test_tool_name_is_scalpel_workspace_health() -> None:
+    from serena.tools.scalpel_primitives import ScalpelWorkspaceHealthTool
+
+    assert ScalpelWorkspaceHealthTool.get_name_from_cls() == "scalpel_workspace_health"
+
+
+def test_apply_returns_workspace_health_shape(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    raw = tool.apply()
+    payload = json.loads(raw)
+    assert "project_root" in payload
+    assert "languages" in payload
+    assert isinstance(payload["languages"], dict)
+
+
+def test_apply_uses_explicit_project_root_when_provided(tmp_path: Path) -> None:
+    """When project_root is passed, it overrides the agent's active project."""
+    other = tmp_path / "explicit_root"
+    other.mkdir()
+    tool = _build_tool(tmp_path)
+    raw = tool.apply(project_root=str(other))
+    payload = json.loads(raw)
+    assert Path(payload["project_root"]).expanduser().resolve() == other.resolve()
+
+
+def test_apply_per_language_indexing_state_is_one_of_four(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    raw = tool.apply()
+    payload = json.loads(raw)
+    legal = {"indexing", "ready", "failed", "not_started"}
+    for lang_block in payload["languages"].values():
+        assert lang_block["indexing_state"] in legal
+
+
+def test_apply_carries_capability_catalog_hash(tmp_path: Path) -> None:
+    tool = _build_tool(tmp_path)
+    raw = tool.apply()
+    payload = json.loads(raw)
+    # The hash is the LanguageHealth.capability_catalog_hash; non-empty
+    # for any language block that has registered capabilities.
+    for lang_block in payload["languages"].values():
+        if lang_block["capabilities_count"] > 0:
+            assert lang_block["capability_catalog_hash"]
+
+
+def test_apply_includes_pool_stats_per_language(tmp_path: Path) -> None:
+    """ServerHealth.pid + rss_mb come from PoolStats; not_started servers
+    surface as ServerHealth rows with pid=None / rss_mb=None."""
+    tool = _build_tool(tmp_path)
+    raw = tool.apply()
+    payload = json.loads(raw)
+    for lang_block in payload["languages"].values():
+        for srv in lang_block["servers"]:
+            assert "server_id" in srv
+            assert "version" in srv
+            # pid/rss_mb may be None when no server is spawned for the
+            # given language at probe time.
+            assert "pid" in srv
+            assert "rss_mb" in srv
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t7_workspace_health.py -v
+```
+
+Expected: 6/6 fail with `AttributeError: ... has no attribute 'ScalpelWorkspaceHealthTool'`.
+
+- [ ] **Step 3: Append the health tool to `scalpel_primitives.py`**
+
+Append (after `ScalpelTransactionRollbackTool`, before `__all__`):
+
+```python
+from serena.tools.scalpel_schemas import (
+    LanguageHealth,
+    ServerHealth,
+    WorkspaceHealth,
+)
+
+
+def _build_language_health(
+    language: "Language",
+    project_root: Path,
+) -> LanguageHealth:
+    """Aggregate ServerHealth rows for one language from the pool stats."""
+    runtime = ScalpelRuntime.instance()
+    pool = runtime.pool_for(language, project_root)
+    stats = pool.stats()
+    catalog = runtime.catalog()
+    lang_records = [r for r in catalog.records if r.language == language.value]
+    server_ids = sorted({r.source_server for r in lang_records})
+    catalog_hash = catalog.hash() if hasattr(catalog, "hash") else ""
+    server_rows: list[ServerHealth] = []
+    for sid in server_ids:
+        # active_servers is a *count*; per-server pid/rss isn't tracked
+        # in PoolStats v1. We surface placeholders that downstream
+        # observability can refine without touching the schema.
+        server_rows.append(ServerHealth(
+            server_id=sid,
+            version="unknown",
+            pid=None,
+            rss_mb=None,
+            capabilities_advertised=tuple(sorted({
+                r.kind for r in lang_records if r.source_server == sid
+            })),
+        ))
+    indexing_state: str
+    if stats.active_servers == 0:
+        indexing_state = "not_started"
+    else:
+        indexing_state = "ready"
+    return LanguageHealth(
+        language=language.value,
+        indexing_state=indexing_state,  # type: ignore[arg-type]
+        indexing_progress=None,
+        servers=tuple(server_rows),
+        capabilities_count=len(lang_records),
+        estimated_wait_ms=None,
+        capability_catalog_hash=catalog_hash,
+    )
+
+
+class ScalpelWorkspaceHealthTool(Tool):
+    """Probe LSP servers: indexing state, registered capabilities, version."""
+
+    def apply(self, project_root: str | None = None) -> str:
+        """Probe LSP servers: indexing state, registered capabilities, version.
+        Call before refactor sessions.
+
+        :param project_root: explicit workspace root; defaults to active project.
+        :return: JSON WorkspaceHealth.
+        """
+        from solidlsp.ls_config import Language
+
+        root = (
+            Path(project_root).expanduser().resolve(strict=False)
+            if project_root is not None
+            else Path(self.get_project_root()).expanduser().resolve(strict=False)
+        )
+        languages: dict[str, LanguageHealth] = {}
+        for lang in (Language.PYTHON, Language.RUST):
+            try:
+                languages[lang.value] = _build_language_health(lang, root)
+            except Exception as exc:  # pragma: no cover — surface as failed
+                languages[lang.value] = LanguageHealth(
+                    language=lang.value,
+                    indexing_state="failed",
+                    indexing_progress=str(exc),
+                    servers=(),
+                    capabilities_count=0,
+                    estimated_wait_ms=None,
+                    capability_catalog_hash="",
+                )
+        return WorkspaceHealth(
+            project_root=str(root),
+            languages=languages,
+        ).model_dump_json(indent=2)
+```
+
+Also add the `from solidlsp.ls_config import Language` import at the top of the file (alongside the existing imports), and add `"ScalpelWorkspaceHealthTool"` to `__all__`.
+
+- [ ] **Step 4: Re-run tests, expect green**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+PATH="$(pwd)/.venv/bin:$PATH" .venv/bin/pytest test/spikes/test_stage_1g_t7_workspace_health.py -v
+```
+
+Expected: 6/6 PASS. NB: `_build_language_health` calls `ScalpelRuntime.pool_for` which constructs a real `LspPool`; the autouse `reset_for_testing()` fixture invokes `pool.shutdown_all()` to keep tests deterministic.
+
+- [ ] **Step 5: Commit T7**
+
+Run:
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel/vendor/serena
+git add src/serena/tools/scalpel_primitives.py \
+        test/spikes/test_stage_1g_t7_workspace_health.py
+git commit -m "$(cat <<'EOF'
+stage-1g(t7): ScalpelWorkspaceHealthTool — per-language probe (6/6 green)
+
+Aggregates LanguageHealth across both registered languages (Python,
+Rust) using PoolStats from Stage 1C and the cached CapabilityCatalog
+from Stage 1F. ServerHealth rows enumerate per-source_server
+capabilities (sorted set of kinds). indexing_state derived from
+PoolStats.active_servers (0 -> not_started, else ready). Per-server
+pid/rss_mb are None at this stage; populated when telemetry lands in
+Stage 1H.
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+git rev-parse HEAD
+```
+
+Then update parent ledger row T7 (`OK — 6/6 green`):
+
+```bash
+cd /Volumes/Unitek-B/Projects/o2-scalpel
+git add vendor/serena docs/superpowers/plans/stage-1g-results/PROGRESS.md
+git commit -m "$(cat <<'EOF'
+plan(stage-1g): T7 ledger — workspace_health (6/6 green)
+
+Co-Authored-By: AI Hive(R) <noreply@o2.services>
+EOF
+)"
+```
+
+Expected: T7 row reads OK — 6/6 green; submodule pointer bumped.
+
+---
+
 
