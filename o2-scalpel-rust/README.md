@@ -1,0 +1,30 @@
+# o2-scalpel-rust
+
+Scalpel refactor MCP server for Rust via rust-analyzer
+
+## Install
+
+```bash
+claude plugin install o2-scalpel-rust --from o2-scalpel
+```
+
+## Requirements
+
+- Claude Code >= 1.0.0
+- LSP server: `rust-analyzer` on `$PATH`
+- File extensions handled: .rs
+
+## Facades
+
+| Facade | Summary |
+|---|---|
+| `scalpel_split_file` | Split a file along symbol boundaries |
+| `scalpel_rename_symbol` | Rename a symbol across the workspace |
+
+## Skills
+
+This plugin ships skills under `skills/` so Claude knows when to call each facade.
+
+## License
+
+MIT - AI Hive(R)

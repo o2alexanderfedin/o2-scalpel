@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "scalpel-rust": {
+      "args": [
+        "--from",
+        "git+https://github.com/o2services/o2-scalpel.git#subdirectory=vendor/serena",
+        "serena-mcp",
+        "--language",
+        "rust"
+      ],
+      "command": "uvx",
+      "env": {}
+    }
+  }
+}
