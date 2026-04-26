@@ -9,7 +9,7 @@
 | T4 | 5b0a13c5f41a17534384424011fc3e9d08a9e354 | DONE | scalpel_extract |
 | T5 | 63fa5e79055b2b6c32946a98c5ce91f9771f6411 | DONE | scalpel_inline |
 | T6 | 1c45917797eb696fc8ab7cc98c3efd120e35db5c | DONE | scalpel_rename + text-search fallback |
-| T7 | | | |
+| T7 | cb09c51a4408c160e38bf08eb0baa478cef5a926 | DONE | scalpel_imports_organize |
 | T8 | | | |
 | T9 | | | |
 | T10 | | | |
