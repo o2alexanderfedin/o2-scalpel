@@ -240,7 +240,15 @@ Grep of `/vendor/serena/src/serena/tools/scalpel_*.py` returned no TODO/FIXME/HA
 
 **Interpretation:**
 - Recent work (`c9c650d`, `fe4fb87`) closed facades gap + fixed H-phase flake.
-- Gap #8 (E1-py flake) documented for v0.2.0 backlog (not yet fixed).
+- Gap #8 (E1-py flake) **CLOSED** by v0.2.0 followup-05 (Leaf 05). The
+  `pytest.skip` fallback at `test_e2e_e1_py_split_file_python.py:87-91` was
+  replaced by an unconditional assertion; a 10-iteration determinism guard
+  lives in `test/e2e/test_e2e_e1_py_determinism.py`. The flake did not
+  reproduce on the Leaf 05 host (30/30 applies via
+  `test/e2e/_e1_py_diagnostic.py`, ledger persisted at
+  `test/e2e/_e1_py_diagnostic_ledger.json`), so no facade-side patch was
+  required; the strip-the-skip change alone tightens the contract so any
+  future regression fails loudly instead of skipping silently.
 - Stage 1H includes Pyright cleanup task (in progress or pending).
 
 ---
@@ -257,7 +265,7 @@ Grep of `/vendor/serena/src/serena/tools/scalpel_*.py` returned no TODO/FIXME/HA
 | **Type-ignore density** | ~10 in scalpel | Acceptable | Stage 1H Pyright pass will cover |
 | **TODO/FIXME markers** | 0 in scalpel | Clean | — |
 | **CI exclusions** | 2 (Erlang, Swift GHA) | Documented | Known workarounds in place |
-| **E1-py flake (gap #8)** | 1 | Backlog | v0.2.0 priority |
+| **E1-py flake (gap #8)** | 1 | **CLOSED** (v0.2.0 followup-05) | strip-the-skip + 10x determinism guard |
 
 ---
 
@@ -267,7 +275,7 @@ Grep of `/vendor/serena/src/serena/tools/scalpel_*.py` returned no TODO/FIXME/HA
 
 2. **Priority 2: inspect.getsource flake root cause** — All 6 Stage 2A/3 tests use identical pattern; likely single upstream cause (safety-call injection, decorator stacking, or bytecode mismatch).
 
-3. **Priority 3: E2E E1-py flake (gap #8)** — Documented but not yet root-caused; v0.2.0 backlog per commit `2ee21f8`.
+3. **Priority 3: E2E E1-py flake (gap #8)** — **CLOSED** by v0.2.0 followup-05 (Leaf 05); see §7 for evidence. The strip-the-skip change at `test_e2e_e1_py_split_file_python.py` plus the 10x guard at `test_e2e_e1_py_determinism.py` make any future recurrence loud.
 
 4. **Priority 4: Host-cargo + LSP-startup E2E gaps** — Known skipped scenarios; Stage 1 scoping decision needed (defer post-MVP or fix in Stage 1H).
 

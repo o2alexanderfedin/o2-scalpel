@@ -103,7 +103,15 @@ Four documented follow-ups from `stage-1h-results/PROGRESS.md:83–89` (A§5), p
 - **rust-analyzer position validation** — edge-case correctness for cursor-positioned assists. **Size: medium.** Blocks: edge-case correctness claim.
 - **Multi-server async wrapping** — parallelism in the multi-LSP merge path. **Size: medium.** Blocks: parallelism in merge.
 - **CARGO_BUILD_RUSTC workaround** — clean Rust-host build environment claim. **Size: small.**
-- **E1-py flake (gap #8)** — see §2 above.
+- **E1-py flake (gap #8)** — _CLOSED by v0.2.0 followup-05 (Leaf 05)._ The
+  `pytest.skip` fallback at `test_e2e_e1_py_split_file_python.py:87-91` was
+  replaced with an unconditional assertion; a dedicated 10-iteration
+  determinism guard lives in `test/e2e/test_e2e_e1_py_determinism.py`. The
+  flake did not reproduce on the Leaf 05 host (30/30 applies via
+  `test/e2e/_e1_py_diagnostic.py`; ledger persisted at
+  `test/e2e/_e1_py_diagnostic_ledger.json`), so no facade-side patch was
+  required. Future regressions will fail loudly instead of skipping
+  silently. See D§7 for canonical record.
 - **Headline calcpy monolith (~950 LoC)** — see §3 above; routed alongside Stage 1H continuation.
 
 ### 5. v1.1 / marketplace
