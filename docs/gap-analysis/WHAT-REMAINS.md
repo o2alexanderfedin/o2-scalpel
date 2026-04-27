@@ -82,18 +82,16 @@ All six are the same pattern — fetching the source of a dynamically-decorated 
 
 ### 3. Honest MVP gaps (deferred from MVP cut, scoped by plan)
 
-**Stage 1H continuation — the largest structural gap.** The original Stage 1H plan called for 13 tasks (T0–T12) totalling ~9,460 LoC of fixtures + integration tests across 31 modules with ~70 sub-tests. The v0.1.0 cut delivered only T0, T1-min, T3-min, T7, and T-smoke — 810 LoC (~9% of plan); the remainder was explicitly routed to a v0.2.0 Stage 1H continuation (A§2, `stage-1h-results/PROGRESS.md:32–33,73–81`).
+**Stage 1H continuation — the largest structural gap.** _CLOSED 2026-04-27 (tag `stage-1h-continuation-complete`)._ All 6 leaves landed via subagent-driven-development with two-stage review per leaf:
 
-Specifically deferred:
+- **T2** — _CLOSED Leaf 01:_ 19 RA companion crates added to `vendor/serena/test/fixtures/calcrs/` (workspace 2 → 21 members; ~970 LoC fixture).
+- **T4–T6** — _CLOSED Leaf 02:_ 3 calcpy sub-fixtures (`calcpy_circular`, `calcpy_dataclasses`, `calcpy_notebooks`) atop existing `calcpy/core.py` (~394 LoC fixture).
+- **Headline `calcpy` monolith** — _CLOSED Leaf 06:_ 574-LoC `calcpy.py` lexer/parser/AST/evaluator with all 10 ugly-on-purpose features per specialist-python §11.2 + `.pyi` stub + 12 baseline tests + frozen `expected/baseline.txt`.
+- **T8–T9** — _CLOSED Leaf 03:_ 16 Rust assist-family integration test modules (44 sub-tests; 25 pass / 19 honest skip on rust-analyzer 1.95.0).
+- **T10** — _CLOSED Leaf 04:_ 8 Python integration test modules (17 sub-tests; tests SKIP on hosts missing pylsp/basedpyright — infrastructure ships, runtime gates are environment-provisioning).
+- **T11** — _CLOSED Leaf 05:_ 7 cross-language multi-server invariant test modules (16 sub-tests; TRIZ separation: helper-direct invariant tests provide host-independent coverage where LSP-boot tests would skip).
 
-- **T2** — 17 RA companion crates (the `calcrs` workspace was bootstrapped with 1 crate only)
-- **T4–T6** — 3 calcpy sub-fixtures (the `calcpy` package shipped with `core.py` only)
-- **T8–T9** — 16 Rust assist-family integration tests
-- **T10** — 8 Python integration tests
-- **T11** — 7 cross-language multi-server tests
-- **Headline `calcpy` monolith** (~950 LoC) for full Python facade exercise (A§6)
-
-**What landing the rest buys:** per-assist-family integration coverage that the MVP currently only proves end-to-end via the spike + 40 E2E tests. Production code is solid (all 14/15 domains implemented, no `NotImplementedError`); the *coverage breadth* the original design report promised is unmet. **Size: large** (~8,650 LoC fixtures + tests). **Blocks:** depth-of-coverage claims for Rust assist families and Python multi-LSP merge; nothing structurally blocked.
+Net total: 90 sub-tests across 31 new test modules + 22 fixture artifacts. Conftest extended with `assert_workspace_edit_round_trip` helper + 4 new workspace fixtures + `python_coordinator` (3-server `MultiServerCoordinator` with `_AsyncAdapter` wrapping per v0.2.0 followup-03). Submodule pyright 0/0/0 across all 31 new test modules + conftest. Submodule SHA `0884d232`; parent SHA `c67a3d3`.
 
 **Stage 2B scenario relabel.** The plan promised "9 MVP scenarios"; the codebase has ~7 MVP-labeled + 5 Stage 3 (E13–E16). All 40 E2E pass with 0 xfail. Cosmetic label/cross-reference cleanup. **Size: small. Blocks: none.**
 
