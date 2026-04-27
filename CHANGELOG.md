@@ -3,6 +3,12 @@
 All notable changes to o2.scalpel are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Type-error coverage
+
+- **pylsp-mypy enabled** with `live_mode: false` + `dmypy: true` per P5a outcome B (stale_rate 0.00%, p95 2.668s on re-run). Expect occasional latency >1s on first didSave after long idle while the dmypy daemon warms; subsequent didSaves complete in ~1.25s. Reconciles `docs/superpowers/plans/spike-results/PROGRESS.md` decision-log §70.
+
 ## [0.1.0] — 2026-04-24
 
 Initial repository carved out of `hupyy/hupyy-cpp-to-rust`. Design-only release; no implementation yet.
