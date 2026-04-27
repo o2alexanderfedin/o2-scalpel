@@ -1,16 +1,16 @@
 # P5a - pylsp-mypy stale-rate under live_mode:false + dmypy:true
 
-**Outcome:** C - stale_rate >= 5% OR p95 >= 3s - DROP pylsp-mypy at MVP; basedpyright sole type-error source
+**Outcome:** INDETERMINATE - pylsp-mypy never published mypy-sourced diagnostics; plugin-load failure
 
 **Evidence:**
 
 - Total internal apply-equivalent steps: 12
-- pylsp-mypy plugin loaded (mypy-sourced diagnostic observed): True
-- Stale steps (oracle != pylsp-mypy): 0
-- Stale rate: 0.00%
-- Latencies (s, all 12): [4.306, 1.5341, 1.3688, 1.2828, 1.4004, 1.3925, 1.4459, 1.404, 1.4871, 1.5558, 1.3523, 1.2285]
-- p95 latency (s): 4.306
-- (oracle_errors, pylsp_errors) pairs: [(2, 2), (2, 2), (2, 2), (2, 2), (2, 2), (3, 3), (2, 2), (3, 3), (2, 2), (2, 2), (2, 2), (2, 2)]
+- pylsp-mypy plugin loaded (mypy-sourced diagnostic observed): False
+- Stale steps (oracle != pylsp-mypy): 12
+- Stale rate: 100.00%
+- Latencies (s, all 12): [8.0238, 8.0108, 8.0126, 8.0001, 8.0385, 8.0201, 8.039, 8.0279, 8.0146, 8.0176, 8.0519, 8.0286]
+- p95 latency (s): 8.052
+- (oracle_errors, pylsp_errors) pairs: [(2, 0), (2, 0), (2, 0), (2, 0), (2, 0), (3, 0), (2, 0), (3, 0), (2, 0), (2, 0), (2, 0), (2, 0)]
 - dmypy oracle failures: []
 
 **Configuration (per Q1 resolution):**
