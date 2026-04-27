@@ -22,7 +22,7 @@ This INDEX summarizes the workstreams; it does **not** restate scope. The author
 |---|---|---|---|---|---|
 | 1 | [`decision-p5a-mypy`](./2026-04-26-decision-p5a-mypy.md) | SINGLE-DOC | [WHAT-REMAINS §1](../gap-analysis/WHAT-REMAINS.md#1-decisions-to-reconcile-highest-priority--small-but-blocking) | S | — |
 | 2 | [`fix-inspect-getsource-flakes`](./2026-04-26-fix-inspect-getsource-flakes.md) | SINGLE-DOC | [WHAT-REMAINS §2 sub-section](../gap-analysis/WHAT-REMAINS.md#the-6-inspectgetsourceclsapply-flakes) | S | — |
-| 3 | [`v020-followups`](./2026-04-26-v020-followups/README.md) | TREE-of-5 | [WHAT-REMAINS §4](../gap-analysis/WHAT-REMAINS.md#4-v020-follow-ups-next-up-planned) | M | `decision-p5a-mypy` |
+| 3 | [`v020-followups`](./2026-04-26-v020-followups/README.md) — **Stream 3 COMPLETE** (tag `stage-v0.2.0-followups-complete`, 2026-04-26) | TREE-of-5 | [WHAT-REMAINS §4](../gap-analysis/WHAT-REMAINS.md#4-v020-follow-ups-next-up-planned) | M | `decision-p5a-mypy` |
 | 4 | [`stage-1h-continuation`](./2026-04-26-stage-1h-continuation/README.md) | TREE-of-6 | [WHAT-REMAINS §3](../gap-analysis/WHAT-REMAINS.md#3-honest-mvp-gaps-deferred-from-mvp-cut-scoped-by-plan) | L (~8,650 LoC) | `decision-p5a-mypy`, `v020-followups` |
 | 5 | [`v11-milestone`](./2026-04-26-v11-milestone/README.md) | TREE-of-8 | [WHAT-REMAINS §5](../gap-analysis/WHAT-REMAINS.md#5-v11--marketplace) | L | `stage-1h-continuation` |
 | 6 | [`v2-language-strategies`](./2026-04-26-v2-language-strategies/README.md) | TREE-of-5 | [WHAT-REMAINS §6](../gap-analysis/WHAT-REMAINS.md#6-v2-language-strategies) | L (per-language) | `v11-milestone` |
