@@ -1,5 +1,11 @@
 # Leaf 01 — basedpyright Dynamic Capability Discovery
 
+> **STATUS: SHIPPED 2026-04-26** — see `stage-v0.2.0-followups-complete` tag (parent + submodule). Cross-reference: `docs/gap-analysis/WHAT-REMAINS.md` §4 line 104 + `docs/superpowers/plans/stage-1h-results/PROGRESS.md` §85.
+>
+> **Implementation deviations from this plan** (recorded post-shipment):
+> - Plan referenced `vendor/serena/src/solidlsp/language_server.py` (nonexistent); actual file is `vendor/serena/src/solidlsp/ls.py`.
+> - Implementation reflected SoT in `DynamicCapabilityRegistry` keyed by `server_id` ClassVar (basedpyright + pylsp wired); future concrete servers opt in by setting `server_id: ClassVar[str]`.
+
 **Goal.** Augment the `workspace_health` catalog post-init from each booted server's `client/registerCapability` events so basedpyright's diagnostic-only registration is reflected in `capabilities_count`, or explicitly mark diagnostic-only servers as hidden in the response schema. Closes WHAT-REMAINS.md §4 line 102.
 
 **Architecture.** Static catalog in `solidlsp/language_servers_capabilities.py` is consulted at boot. After each server's `initialized` notification, dynamic `client/registerCapability` requests arrive (already accepted by `pylsp_server.py:166`, `eclipse_jdtls.py:880`, etc.) but are not surfaced to the workspace_health primitive. We add a per-server `dynamic_capabilities: list[str]` accumulator and merge it into `LanguageRecord.capabilities_count` when the workspace_health tool runs.

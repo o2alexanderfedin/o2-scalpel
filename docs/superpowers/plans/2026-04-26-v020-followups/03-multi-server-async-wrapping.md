@@ -1,5 +1,11 @@
 # Leaf 03 — Multi-Server Async Wrapping Verification
 
+> **STATUS: SHIPPED 2026-04-26** — see `stage-v0.2.0-followups-complete` tag (parent + submodule). Cross-reference: `docs/gap-analysis/WHAT-REMAINS.md` §4 line 106 + `docs/superpowers/plans/stage-1h-results/PROGRESS.md` §87.
+>
+> **Implementation deviations from this plan** (recorded post-shipment):
+> - Plan hard-coded `method_names=("request_code_actions", "resolve_code_action", "request_rename_symbol_edit")` — implementation extracted single-source-of-truth `AWAITED_SERVER_METHODS` constant in `vendor/serena/src/serena/refactoring/_async_check.py` and references it from both `MultiServerCoordinator._AWAITED_SERVER_METHODS` and `_AsyncAdapter._ASYNC_METHODS`.
+> - Plan parallelism threshold reads `parallel_elapsed < serial_total * 0.7` (~line 208); implementation ships an Amdahl-aware budget (`parallel < serial − 10% × max-save`) — same intent, mathematically tightened to handle skewed per-server timings (pylsp dominates serial in practice).
+
 **Goal.** Prove `MultiServerCoordinator.broadcast` parallelises real Stage 1E adapters via `_AsyncAdapter`, and add an integration test that previously raised `TypeError: object list can't be used in 'await' expression` when called against a real adapter without the wrapper. Closes WHAT-REMAINS.md §4 line 104 and the Stage 1H follow-up at `stage-1h-results/PROGRESS.md:87`.
 
 **Architecture.** `_AsyncAdapter` (`vendor/serena/src/serena/tools/scalpel_runtime.py:59-97`) already wraps each spawned `SolidLanguageServer` so that synchronous `request_code_actions` calls run on a thread pool via `asyncio.to_thread`. The Stage 1H follow-up notes that any code path which constructs a `MultiServerCoordinator` from raw (non-adapter) servers will deadlock-on-await. We add: (a) a defensive runtime check inside `MultiServerCoordinator.__init__` that all server values are async-callable, (b) an integration test that wires three real adapters and asserts `broadcast` returns within 2× single-server latency (parallelism evidence).

@@ -1,5 +1,11 @@
 # Leaf 05 — E1-py Flake Root-Cause and Fix
 
+> **STATUS: SHIPPED 2026-04-26** — see `stage-v0.2.0-followups-complete` tag (parent + submodule). Cross-reference: `docs/gap-analysis/WHAT-REMAINS.md` §4 line 108 + `docs/superpowers/plans/stage-1h-results/PROGRESS.md` §88 (E1-py bullet).
+>
+> **Implementation deviations from this plan** (recorded post-shipment):
+> - Flake did NOT reproduce on the impl host (30/30 + 100/100 applies). Per spec's "if flake doesn't reproduce" branch, Task 3's facade fix was SKIPPED. The strip-the-skip change tightens the contract regardless. Empirical ledger committed at `vendor/serena/test/e2e/_e1_py_diagnostic_ledger.json`.
+> - Note: P5a SHIP/B decision (per `docs/superpowers/plans/2026-04-26-decision-p5a-mypy.md`, ratified 2026-04-27) is now load-bearing for L05's underlying multi-LSP merge path.
+
 **Goal.** Root-cause and fix the E1-py flake (Stage 2B observed gap) so `test_e1_py_4way_split_byte_identical` returns a deterministic PASS instead of `pytest.skip(... applied=False ...)`. Closes WHAT-REMAINS.md §4 line 106 and the E1-py bullet in `docs/gap-analysis/D-debt.md` §7 (commit `2ee21f8` for context).
 
 **Architecture.** The current test (`vendor/serena/test/e2e/test_e2e_e1_py_split_file_python.py`) runs the 4-way split, then **conditionally** asserts byte-identity only when `payload.get("applied") is True`; otherwise it skips with the `failure` reason. The "skip on applied=False" path masks an underlying nondeterminism in the split-file facade dispatcher. Our task: (1) reproduce 10× under `pytest -p no:randomly --count=10`; (2) capture the failure reason payload across runs; (3) trace to the root-cause site (likely a stale `pylsp` source-map or basedpyright pull-mode timing window); (4) fix at the root; (5) flip the `pytest.skip` into an assertion failure so future regressions are loud.

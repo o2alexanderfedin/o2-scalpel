@@ -1,5 +1,11 @@
 # Leaf 02 — rust-analyzer Position Validation Helper
 
+> **STATUS: SHIPPED 2026-04-26** — see `stage-v0.2.0-followups-complete` tag (parent + submodule). Cross-reference: `docs/gap-analysis/WHAT-REMAINS.md` §4 line 105 + `docs/superpowers/plans/stage-1h-results/PROGRESS.md` §86.
+>
+> **Implementation deviations from this plan** (recorded post-shipment):
+> - `whole_file_range` conftest fixture shipped DUAL-MODE rather than single-mode (parametrized via `indirect=True` OR backwards-compat fallback). Spec compliance review approved this; subsequent review I3 reverted it to single-mode (see commit `8b7e8aac`).
+> - Adapter test uses `RustAnalyzer.__new__()` + `patch.object` to mock `super().request_code_actions` instead of integration-style booted RA test (faster + verifies preflight without LSP round-trip).
+
 **Goal.** Ship `compute_file_range(path) -> (start, end)` so the 16 deferred Rust integration tests stop duplicating end-of-file coordinate math, and rust-analyzer's strict out-of-range rejection is centrally validated. Closes WHAT-REMAINS.md §4 line 103 and the Stage 1H follow-up at `stage-1h-results/PROGRESS.md:86`.
 
 **Architecture.** The existing `whole_file_range` conftest fixture (`vendor/serena/test/integration/conftest.py:185`) is hard-coded for a single Python sample (`del whole_file_range  # unused on Rust path` in `test_smoke_rust_codeaction.py:43`). We move the math into a pure helper next to the rust-analyzer adapter so it can be imported by Rust integration tests and by the adapter itself for pre-flight position validation.
