@@ -29,7 +29,7 @@ The fix is a single environment variable: `CARGO_BUILD_RUSTC=rustc`.
 
 | Layer | Location | Behaviour |
 |------|----------|-----------|
-| Opt-in pytest plugin | `vendor/serena/test/conftest_dev_host.py` | Sets `CARGO_BUILD_RUSTC=rustc` only when `O2_SCALPEL_LOCAL_HOST=1`. Auto-loaded via `addopts = "... -p test.conftest_dev_host"` in `vendor/serena/pyproject.toml`. |
+| Opt-in pytest plugin | `vendor/serena/test/conftest_dev_host.py` | Sets `CARGO_BUILD_RUSTC=rustc` only when `O2_SCALPEL_LOCAL_HOST=1`. Auto-loaded via `pytest_plugins = ["test.conftest_dev_host"]` declared in `vendor/serena/test/conftest.py` (the original `addopts = "-p test.conftest_dev_host"` approach failed because `addopts` is parsed before pytest adds the rootdir to `sys.path`, so the dotted import could not be resolved; `pytest_plugins` in the rootdir conftest runs after the bootstrap that puts the rootdir on `sys.path`). |
 | Developer shell shim | `scripts/dev_env_shim.sh` | One-line `export O2_SCALPEL_LOCAL_HOST=1` for `source`-ing into your shell. |
 | Documentation | this file | Single source of truth. |
 | Plugin tests | `vendor/serena/test/conftest_dev_host_test.py` | Asserts both opt-in semantics. |
