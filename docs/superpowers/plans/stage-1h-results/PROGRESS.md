@@ -91,7 +91,7 @@ The remaining ~91% routes to v0.2.0 "Stage 1H continuation".
 
 - P3 → ALL-PASS — Rope 1.14.0 + Python 3.10–3.13+ supported. Library bridge integration tested in T23 / T24 (deferred to v0.2.0).
 - P4 → A — basedpyright 1.39.3 PULL-mode only; T21 (deferred) exercises pull-mode auto-import.
-- P5a → C — pylsp-mypy DROPPED. T20 / T25 (deferred) verify the 3-server merge does not include mypy.
+- P5a → B (re-run 2026-04-26, SHIP) — pylsp-mypy ships as a plugin inside pylsp-rope (`live_mode: false` + `dmypy: true`); see `solidlsp.decisions.p5a_mypy`. T20 / T25 (deferred) still verify the SERVER_SET (`{pylsp-rope, basedpyright, ruff}`) — pylsp-mypy is NOT a server, so SERVER_SET assertions remain valid.
 - Q1 cascade — synthetic per-step `didSave` injection no longer needed (was a pylsp-mypy mitigation).
 - Q3 — `basedpyright==1.39.3` exact pin verified by adapter boot in T7 conftest fixture.
 - S5 → see S5 note — `expandMacro` proc-macro pathway will be tested via `ra_proc_macros` + T15 (deferred to v0.2.0).

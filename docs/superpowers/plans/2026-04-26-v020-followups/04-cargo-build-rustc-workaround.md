@@ -1,5 +1,10 @@
 # Leaf 04 — `CARGO_BUILD_RUSTC` Developer-Host Workaround
 
+> **STATUS: SHIPPED 2026-04-26** — see `stage-v0.2.0-followups-complete` tag (parent + submodule). Cross-reference: `docs/gap-analysis/WHAT-REMAINS.md` §4 line 107 + `docs/superpowers/plans/stage-1h-results/PROGRESS.md` §88.
+>
+> **Implementation deviations from this plan** (recorded post-shipment):
+> - Plan prescribed `addopts = "-p test.conftest_dev_host"` in `pyproject.toml` — REJECTED at impl time because `addopts -p` is parsed before pytest adds the rootdir to `sys.path`. Actual mechanism: `pytest_plugins = ["test.conftest_dev_host"]` in `vendor/serena/test/conftest.py:32`. The plan's `addopts` code block (around lines 102-107) has been REPLACED below with the actual `pytest_plugins` mechanism.
+
 **Goal.** Move the `os.environ.setdefault("CARGO_BUILD_RUSTC", "rustc")` shim out of conftest module-load and into a documented developer-host-only script, so CI runs cleanly without the env override and the workaround is no longer treated as production code. Closes WHAT-REMAINS.md §4 line 105 and `stage-1h-results/PROGRESS.md:88`.
 
 **Architecture.** Today the workaround lives at `test/spikes/test_spike_s3_apply_edit_reverse.py:24` and `stage-1h-results/PROGRESS.md:35` records that conftest module-load applies it. CI hosts have a clean `~/.cargo/config.toml` and don't need it; the developer's host has `[build] rustc = "rust-fv-driver"` (a broken wrapper). We extract the shim into a single `scripts/dev_env_shim.sh` (POSIX) plus a pytest plugin entry point that activates **only** when `O2_SCALPEL_LOCAL_HOST=1` is set.
@@ -101,9 +106,18 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
 
 Edit `vendor/serena/pyproject.toml` `[tool.pytest.ini_options]` block:
 
+> **Plan superseded by impl** — see STATUS addendum above for rejection rationale.
+
 ```toml
-[tool.pytest.ini_options]
-addopts = "-p test.conftest_dev_host"
+# Plan PRESCRIBED (rejected at impl time — see addendum above):
+# [tool.pytest.ini_options]
+# addopts = "-p test.conftest_dev_host"
+```
+
+```python
+# Plan ACTUAL (shipped):
+# vendor/serena/test/conftest.py:
+pytest_plugins = ["test.conftest_dev_host"]
 ```
 
 Run `uv run pytest vendor/serena/test/conftest_dev_host_test.py -x` — both green. Commit `feat(stage-v0.2.0-followup-04a): opt-in pytest plugin for developer-host CARGO_BUILD_RUSTC shim`.

@@ -65,6 +65,10 @@ Review changes with a separate subtask before commit.
 ### Single Source of Truth
 Each piece of information has one canonical location. Never duplicate across files. Link to the canonical source instead.
 
+### Plan File Conventions
+
+- **Atomic plan files** (single-file plans like `decision-*.md` or `fix-*.md`) drafted on day-N must have a STATUS update by day-N+7 (executed, deferred, or superseded). TREE plans (multi-leaf with `README.md` + leaf table) have built-in per-leaf cadence and are exempt — their leaf table IS the status tracker.
+
 ## Git Workflow
 
 ### Git Flow
@@ -86,5 +90,5 @@ Tag a release after each significant feature or piece is implemented.
 AI Hive(R). Never use "Claude" as the author identifier in commits.
 
 ---
-**Last Updated**: 2026-04-24
+**Last Updated**: 2026-04-27
 **Spun out of**: `hupyy/hupyy-cpp-to-rust`

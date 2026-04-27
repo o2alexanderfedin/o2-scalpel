@@ -3,6 +3,57 @@
 All notable changes to o2.scalpel are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Type-error coverage
+
+- **pylsp-mypy enabled** with `live_mode: false` + `dmypy: true` per P5a outcome B (stale_rate 0.00%, p95 2.668s on re-run). Expect occasional latency >1s on first didSave after long idle while the dmypy daemon warms; subsequent didSaves complete in ~1.25s. Reconciles `docs/superpowers/plans/spike-results/PROGRESS.md` decision-log §70.
+
+### Documentation hygiene (post-v0.2.0 review batch — no tag yet)
+
+- Refreshed `CHANGELOG.md` (this file) with the seven shipped tags between v0.1.0 and `stage-v0.2.0-followups-complete` that had not yet been recorded.
+- Updated `docs/superpowers/plans/2026-04-24-mvp-execution-index.md` status column so stages 1A, 1B, 1H, 1I, 2A, 2B reflect their shipped tags rather than "Plan ready".
+- Added a stale-numbers banner to `docs/design/mvp/2026-04-24-mvp-scope-report.md` (headline says 13 + 11 = 24; reality at `stage-v0.2.0-followups-complete` is 8 primitives + 25 facades = 33 always-on tools).
+- Added a Stream 3 COMPLETE banner to `docs/superpowers/plans/2026-04-26-INDEX-post-v0.3.0.md` referencing tag `stage-v0.2.0-followups-complete`.
+- Added a "Plan File Conventions" rule to `CLAUDE.md`: atomic plan files must carry a STATUS update by day-N+7; TREE plans are exempt because their leaf table is the status tracker.
+
+## [0.3.0-facade-application] — 2026-04-26
+
+- Stage 3 facade-application gap CLOSED: pure-python `WorkspaceEdit` applier wired into all 8 facade dispatch sites so facades that previously discovered edits but did not write them now actually mutate the workspace. Spike-suite 696 passing (+8); E2E 20 passing (+2 SKIP→PASS). Six pre-existing `inspect.getsource` flakes documented (not regression).
+- Tag covers parent `feature/v030-facade-application` merge into `main`; submodule pointer updated.
+
+## [0.2.0-stage-3-complete] — 2026-04-26
+
+- Stage 3 T1–T9 fully landed: 25 ergonomic facades + 8 always-on primitives + 8 long-tail E2E scenarios + README/install docs.
+- Documents the v0.3.0 facade-application architectural gap (facades discover but do not write — the Stage 2A pattern was inherited and is closed by the v0.3.0 tag above).
+
+## [0.2.0-stage-3-facades-complete] — 2026-04-26
+
+- Twelve Rust + eight Python ergonomic facades + the T8 server-extension whitelist landed; spike-suite 680 passing (+66 tests).
+- E13-py dedup gap CLOSED via `scalpel_fix_lints` (`source.fixAll.ruff`). Stage 3 T6/T7/T9 deferred to the parent v0.2.0-stage-3-complete tag.
+
+## [0.2.0-critical-path] — 2026-04-26
+
+- Seven backlog items from the v0.2.0 critical path landed alongside the Stage 1H flake fix; spike-suite 614/3 skips, E2E 18 passing / 9 skips / 1 FAIL.
+- E13-py dedup gap surfaces honestly in this tag and is closed in `v0.2.0-stage-3-facades-complete` above.
+
+## [0.1.0-mvp] — 2026-04-26
+
+- MVP cut: Stages 1H-min + 1I + 2A + 2B all landed at parent main `87a5617`, submodule main `229a46d5`.
+- Spike-suite 590/3 skips + E2E 18/10 skips; Stage 1 gate green; six MVP-cut axes met.
+- Nine E2E scenarios partially green (0 FAIL; skips trace to host-cargo and LSP-startup gaps documented separately).
+
+### Submodule-only milestone (recorded for traceability)
+
+## [stage-v0.2.0-followup-01-basedpyright-dynamic-capability-complete] — 2026-04-26 (submodule tag)
+
+- basedpyright dynamic-capability gap CLOSED: `DynamicCapabilityRegistry` + `LanguageHealth.dynamic_capabilities` tuple + base `_handle_register_capability` extension + `ClassVar server_id` (basedpyright + pylsp wired); 8 new tests; 0/0/0 pyright. Catalog-evolution caveat documented.
+- This tag lives only in `vendor/serena`; the parent repo records it through the submodule pointer landed in `stage-v0.2.0-followups-complete`.
+
+## [stage-v0.2.0-followups-complete] — 2026-04-27
+
+- v0.2.0 follow-ups complete: leaves 02, 03, 04, 05 of the `2026-04-26-v020-followups` TREE landed (plus the basedpyright dynamic-capability submodule work captured above).
+
 ## [0.1.0] — 2026-04-24
 
 Initial repository carved out of `hupyy/hupyy-cpp-to-rust`. Design-only release; no implementation yet.

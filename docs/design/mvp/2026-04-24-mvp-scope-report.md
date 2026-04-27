@@ -1,5 +1,7 @@
 # o2.scalpel — MVP Scope Report (v2: Full LSP Coverage)
 
+> **Status (2026-04-27):** Headline numbers in this report are stale. As of `stage-v0.2.0-followups-complete`, the registry shows **8 primitives + 25 facades = 33 always-on tools** (was 13 + 11 at draft). For current state see `docs/gap-analysis/WHAT-REMAINS.md`. The historical record below is preserved unchanged.
+
 Status: report-only. Authoritative MVP scope synthesized from the four full-coverage specialist brainstorms plus the main design and the open-questions resolution. **Supersedes** the narrow v1 synthesis at [`archive-v1-narrow/2026-04-24-mvp-scope-report.md`](archive-v1-narrow/2026-04-24-mvp-scope-report.md) on every disagreement.
 
 Date: 2026-04-24. Author: AI Hive(R).
