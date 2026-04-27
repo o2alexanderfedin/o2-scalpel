@@ -1,6 +1,6 @@
 # P5a - pylsp-mypy stale-rate under live_mode:false + dmypy:true
 
-**Outcome:** INDETERMINATE - pylsp-mypy never published mypy-sourced diagnostics; plugin-load failure
+**Outcome:** B (SHIP with documented cold-daemon warning) - re-run on 2026-04-26 reversed both falsifier axes (stale_rate 0.00%, p95 2.668s); see `solidlsp.decisions.p5a_mypy`. Original 2026-04-24 run recorded INDETERMINATE / "verdict C" (kept below as historical evidence).
 
 **Evidence:**
 
