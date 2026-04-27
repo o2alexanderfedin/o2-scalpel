@@ -1,0 +1,21 @@
+{
+  "plugins": [
+    {
+      "id": "o2-scalpel-python",
+      "install_hint": "pipx install python-lsp-server",
+      "language": "python",
+      "name": "o2-scalpel-python",
+      "path": "o2-scalpel-python",
+      "version": "1.0.0"
+    },
+    {
+      "id": "o2-scalpel-rust",
+      "install_hint": "rustup component add rust-analyzer",
+      "language": "rust",
+      "name": "o2-scalpel-rust",
+      "path": "o2-scalpel-rust",
+      "version": "1.0.0"
+    }
+  ],
+  "schema_version": 1
+}
