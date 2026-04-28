@@ -1,0 +1,32 @@
+# o2-scalpel-markdown
+
+Scalpel refactor MCP server for Markdown via marksman
+
+## Install
+
+```bash
+claude plugin install o2-scalpel-markdown --from o2-scalpel
+```
+
+## Requirements
+
+- Claude Code >= 1.0.0
+- LSP server: `marksman` on `$PATH`
+- File extensions handled: .md, .markdown, .mdx
+
+## Facades
+
+| Facade | Summary |
+|---|---|
+| `scalpel_rename_heading` | Rename a heading and update all cross-file wiki-links |
+| `scalpel_split_doc` | Split a long markdown doc along H1/H2 boundaries into linked sub-docs |
+| `scalpel_extract_section` | Extract a section into a new file with a back-link |
+| `scalpel_organize_links` | Sort and normalize markdown links/wiki-links |
+
+## Skills
+
+This plugin ships skills under `skills/` so Claude knows when to call each facade.
+
+## License
+
+MIT - AI Hive(R)
