@@ -415,7 +415,7 @@ Per-phase scope, files touched, and exit criteria:
 | **P3** | TODO | Write the 5 facade tests + cargo smoke | `vendor/serena/test/e2e/test_e2e_playground_rust.py` (new) | `O2_SCALPEL_RUN_E2E=1 uv run pytest ... test_e2e_playground_rust.py` is green locally with `rust-analyzer` on PATH |
 | **P4** | TODO | Wrap in shell script + Makefile target | `scripts/e2e_playground.sh` (new), `Makefile` (additive `.PHONY: e2e-playground`) | `make e2e-playground` succeeds locally |
 | **P5** | TODO | GH Actions workflow | `.github/workflows/playground.yml` (new) — first GH Actions file in the parent repo | One green CI run on `macos-latest`; the workflow also runs the P0 regression gate (SC-1) on every push |
-| **P6** | TODO | README updates | `README.md` (sections rewritten + new troubleshooting + new verification section) | A user can paste the install commands into a fresh shell and reach a working install |
+| **P6** | DONE 2026-04-28 (parent `2b77efd`) | README updates | `README.md` (sections rewritten + new troubleshooting + new verification section) | A user can paste the install commands into a fresh shell and reach a working install |
 | **P7** | TODO | Remote-install gated stub | One additional test in `test_e2e_playground_rust.py` with `@pytest.mark.skipif(os.getenv("O2_SCALPEL_TEST_REMOTE_INSTALL") != "1", ...)` | Test runs green when the env var is set; documented as v1.3 graduation candidate |
 
 ---
@@ -461,6 +461,7 @@ Session-scoped `scalpel_runtime` is reused across all six tests — the runtime 
 - **The remaining 7 Rust facades** — `complete_match_arms`, `change_return_type`, `change_type_shape`, `extract_lifetime`, `generate_member`, `generate_trait_impl_scaffold`, `expand_glob_imports`, `expand_macro`, `tidy_structure`, `convert_module_layout`, `verify_after_refactor` (the last covered indirectly by the cargo smoke). When these land in v1.3, P1 SHALL be re-opened to add a `types/` crate (placeholder for `change_return_type` / `change_type_shape` / `extract_lifetime` fixtures); the v1.2.2 spec deliberately omits the empty crate per SC-2 (YAGNI — empty crate burns CI time for zero signal).
 - **Skill format migration** ([install-mechanics.md §6](../research/2026-04-28-rust-plugin-e2e-playground/install-mechanics.md), open question 4) — flat `.md` skill format remains in v1.2.2; migration to `<name>/SKILL.md` subdirectory format is a separate concern and not blocking for the playground.
 - **`hooks.json` for the `verify` semantics beyond rust-analyzer** ([install-mechanics.md §5](../research/2026-04-28-rust-plugin-e2e-playground/install-mechanics.md) failure F4 deeper layer) — the v1.2.2 fix only wires the existing script + bumps the exit code. Richer pre-flight (e.g., `tools/list` smoke from the hook) is v1.3+.
+- **Lean and SMT2 language plugins** — deferred to a future stream alongside the polyglot expansion (TypeScript/Go/C/C++/Java). Lean 4 ships a first-party LSP (`lean --server`); SMT-LIB v2 has community LSPs (e.g., `smt-lsp`). Both are tracked as scope-extension candidates; neither is in the v1.2.2 playground gate.
 
 ---
 
