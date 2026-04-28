@@ -1,0 +1,82 @@
+name: playground
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "playground/**"
+      - "vendor/serena/test/e2e/test_e2e_playground_rust.py"
+      - "vendor/serena/test/e2e/conftest.py"
+      - "scripts/e2e_playground.sh"
+      - ".github/workflows/playground.yml"
+      - "o2-scalpel-rust/**"
+      - ".claude-plugin/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "playground/**"
+      - "vendor/serena/test/e2e/test_e2e_playground_rust.py"
+      - "vendor/serena/test/e2e/conftest.py"
+      - "scripts/e2e_playground.sh"
+      - ".github/workflows/playground.yml"
+      - "o2-scalpel-rust/**"
+      - ".claude-plugin/**"
+  workflow_dispatch:
+
+concurrency:
+  group: playground-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Playground E2E (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (recursive submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain (stable)
+        run: |
+          rustup toolchain install stable --no-self-update
+          rustup default stable
+          rustup component add rust-analyzer
+
+      - name: Cache Rust toolchain and registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup/toolchains
+          key: rust-${{ runner.os }}-stable-${{ hashFiles('playground/rust/Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-stable-
+            rust-${{ runner.os }}-
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Cache uv virtualenv
+        uses: actions/cache@v4
+        with:
+          path: vendor/serena/.venv
+          key: uv-venv-${{ runner.os }}-3.11-lock-${{ hashFiles('vendor/serena/uv.lock') }}
+          restore-keys: |
+            uv-venv-${{ runner.os }}-3.11-lock-
+
+      - name: Install Python deps (engine submodule)
+        working-directory: vendor/serena
+        run: |
+          if [ ! -d ".venv" ]; then
+            uv venv
+          fi
+          uv sync --frozen
+
+      - name: Run playground E2E (SC-1 P0 gate + 6 tests)
+        run: bash scripts/e2e_playground.sh
