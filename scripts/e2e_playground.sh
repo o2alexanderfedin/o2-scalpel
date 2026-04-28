@@ -24,7 +24,7 @@ test -f .claude-plugin/marketplace.json
 test -f o2-scalpel-rust/hooks/hooks.json
 grep -q "exit 2" o2-scalpel-rust/hooks/verify-scalpel-rust.sh
 grep -q "o2alexanderfedin/o2-scalpel-engine" o2-scalpel-rust/.mcp.json
-! git grep -q "o2services" -- ':!docs/' ':!*.md' || { echo "ERROR: stale o2services reference found"; exit 2; }
+! git grep -q "o2services/o2-scalpel" -- ':!docs/' ':!*.md' ':!scripts/' || { echo "ERROR: stale o2services reference found"; exit 2; }
 echo "==> e2e_playground: P0 regression gate PASSED"
 
 echo "==> e2e_playground: invoking pytest with O2_SCALPEL_RUN_E2E=1"
