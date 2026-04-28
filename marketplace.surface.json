@@ -1,6 +1,14 @@
 {
   "plugins": [
     {
+      "id": "o2-scalpel-markdown",
+      "install_hint": "brew install marksman  # macOS; snap install marksman on Linux",
+      "language": "markdown",
+      "name": "o2-scalpel-markdown",
+      "path": "o2-scalpel-markdown",
+      "version": "1.0.0"
+    },
+    {
       "id": "o2-scalpel-python",
       "install_hint": "pipx install python-lsp-server",
       "language": "python",

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "scalpel-markdown": {
+      "args": [
+        "--from",
+        "git+https://github.com/o2services/o2-scalpel.git#subdirectory=vendor/serena",
+        "serena-mcp",
+        "--language",
+        "markdown"
+      ],
+      "command": "uvx",
+      "env": {}
+    }
+  }
+}
