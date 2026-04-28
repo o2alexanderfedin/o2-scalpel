@@ -118,6 +118,12 @@ the Rust playground structure. It exercises `scalpel_split_file`,
 `scalpel_rename`, `scalpel_extract`, `scalpel_inline`, and
 `scalpel_imports_organize` against a `pylsp`-backed Python project.
 
+The Markdown playground (`playground/markdown/`) was added in v1.3-D and
+covers the four Markdown facades: `scalpel_rename_heading` (marksman LSP,
+including cross-file wiki-link propagation), `scalpel_split_doc`,
+`scalpel_extract_section`, and `scalpel_organize_links` (the latter three
+are pure-text and run without marksman).
+
 The same script runs in CI on every push to `main` (see
 `.github/workflows/playground.yml`).
 
