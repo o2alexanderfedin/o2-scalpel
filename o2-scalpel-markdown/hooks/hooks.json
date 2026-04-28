@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/verify-scalpel-markdown.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
