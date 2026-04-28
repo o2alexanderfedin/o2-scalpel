@@ -25,23 +25,99 @@ Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forke
 
 ## Install
 
-For local-development use today (v1.1 will publish a marketplace plugin):
+Prerequisites:
+
+```sh
+# Claude Code >= 1.0.0 (the /plugin marketplace API was added in 1.0.0)
+brew upgrade claude-code   # if upgrading from <1.0.0
+
+# Rust plugin: rust-analyzer via rustup
+rustup component add rust-analyzer
+```
+
+### Recommended: install via Claude Code's plugin manager
+
+In Claude Code:
+
+```
+/plugin marketplace add o2alexanderfedin/o2-scalpel
+/plugin install o2-scalpel-rust@o2-scalpel
+/reload-plugins
+```
+
+This path fetches the engine (`o2-scalpel-engine`) automatically from
+GitHub via the plugin's `.mcp.json` `git+URL` reference. No submodules
+are cloned into your workspace.
+
+To verify the install worked:
+
+```
+/scalpel_workspace_health
+```
+
+### Engine developers only: local-dev shortcut
+
+This path is for contributors hacking on the engine itself
+(`vendor/serena`). It bypasses the plugin manager and uses the in-tree
+submodule directly:
 
 ```sh
 git clone https://github.com/o2alexanderfedin/o2-scalpel.git
 cd o2-scalpel
 git submodule update --init --recursive
-uvx --from ./vendor/serena serena-mcp
+uvx --from ./vendor/serena serena-mcp --language rust
 ```
 
-Or generate a per-language plugin tree via the Stage 1J generator:
+If you only want to *use* the plugin, prefer the recommended path above —
+it does not require submodule recursion.
+
+To verify all plugins locally:
 
 ```sh
-uvx --from ./vendor/serena o2-scalpel-newplugin --language rust --out ./o2-scalpel-rust
-uvx --from ./vendor/serena o2-scalpel-newplugin --language python --out ./o2-scalpel-python
+make verify-plugins-fresh
 ```
 
-See [`docs/install.md`](docs/install.md) for full setup including LSP server prerequisites (`rust-analyzer`, `pylsp`, `basedpyright-langserver`, `ruff`).
+See [`docs/install.md`](docs/install.md) for Python and Markdown plugins, and for `pylsp`,
+`basedpyright-langserver`, `ruff`, and `marksman` setup.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Plugin not found in any marketplace` | Catalog stale or never added | `/plugin marketplace update o2-scalpel` or re-add with `/plugin marketplace add o2alexanderfedin/o2-scalpel` |
+| `Executable not found in $PATH: rust-analyzer` | LSP not installed | `rustup component add rust-analyzer` |
+| `Executable not found in $PATH: pylsp` | Python LSP not installed | `pipx install python-lsp-server` |
+| `Executable not found in $PATH: marksman` | Markdown LSP not installed | `brew install marksman` |
+| `applied=False` on a refactor | rust-analyzer not yet indexed | Run `cargo build` in the project once before retrying |
+| `git+URL` install hangs | Network or GitHub auth issue | Check `~/.netrc` or SSH key; try `uvx --from git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git serena-mcp --help` directly |
+| Plugin cache stale after re-publish at same version | `version: "1.0.0"` is pinned in cache | `/plugin uninstall o2-scalpel-rust` then reinstall, or bump `plugin.json` version |
+| Skill / tool namespace not found after install | Claude Code < 1.0.0 | `brew upgrade claude-code` |
+| Skill not appearing after plugin install | Plugins not reloaded | Run `/reload-plugins` in Claude Code |
+| `verify-scalpel-rust.sh` exits with code 2 at SessionStart | `rust-analyzer` not on PATH — blocking error | Install via `rustup component add rust-analyzer`, then verify with `which rust-analyzer` |
+| `make e2e-playground` skips every test | `rust-analyzer` or `cargo` missing on PATH | Install via `rustup`; verify with `which rust-analyzer` and `which cargo` |
+| `cargo test` fails with `cannot open shared object file` | rustc dylib mismatch | Reinstall toolchain via `rustup toolchain install stable` |
+
+## Verifying the install end-to-end
+
+The repository ships a Rust playground workspace and a programmatic E2E
+suite that exercises five Rust facades against a real `rust-analyzer`
+process. To run it locally:
+
+```sh
+rustup component add rust-analyzer
+make e2e-playground
+```
+
+The same script runs in CI on every push to `main` (see
+`.github/workflows/playground.yml`).
+
+> **Note — Phases 1–7 in progress**: the `playground/rust/` workspace,
+> the `make e2e-playground` Makefile target, and the CI workflow are
+> being built out as part of v1.2.2 Phases 1–7. Until those phases
+> land, use `make verify-plugins-fresh` for local end-to-end
+> verification. See
+> [`docs/superpowers/specs/2026-04-28-rust-plugin-e2e-playground-spec.md`](docs/superpowers/specs/2026-04-28-rust-plugin-e2e-playground-spec.md)
+> for the full playground spec and phase delivery schedule.
 
 ## Layout
 
