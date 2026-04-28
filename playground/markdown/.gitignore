@@ -1,0 +1,3 @@
+# Markdown playground — nothing language-specific to ignore.
+# Generated sibling files from split_doc / extract_section are created
+# in tmp_path clones during E2E testing, never here.
