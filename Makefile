@@ -9,7 +9,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: help generate-plugins generate-rust generate-python generate-markdown verify-plugins-fresh _restamp-banners
+.PHONY: help generate-plugins generate-rust generate-python generate-markdown verify-plugins-fresh _restamp-banners e2e-playground
 
 OUT ?= .
 LANGUAGES ?= rust python markdown
@@ -24,6 +24,7 @@ help:
 	@echo "  generate-python       Single-language emit (python)"
 	@echo "  generate-markdown     Single-language emit (markdown)"
 	@echo "  verify-plugins-fresh  Run scripts/stage_1i_uvx_smoke.sh against each tree"
+	@echo "  e2e-playground        Run the v1.2.2 playground E2E suite (gated on rust-analyzer + cargo)"
 	@echo ""
 	@echo "Variables:"
 	@echo "  OUT=$(OUT)             Output parent directory"
@@ -62,3 +63,6 @@ _restamp-banners:
 verify-plugins-fresh:
 	@scripts/stage_1i_uvx_smoke.sh rust
 	@scripts/stage_1i_uvx_smoke.sh python
+
+e2e-playground:
+	@bash scripts/e2e_playground.sh
