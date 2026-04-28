@@ -462,6 +462,7 @@ Session-scoped `scalpel_runtime` is reused across all six tests — the runtime 
 - **Skill format migration** ([install-mechanics.md §6](../research/2026-04-28-rust-plugin-e2e-playground/install-mechanics.md), open question 4) — flat `.md` skill format remains in v1.2.2; migration to `<name>/SKILL.md` subdirectory format is a separate concern and not blocking for the playground.
 - **`hooks.json` for the `verify` semantics beyond rust-analyzer** ([install-mechanics.md §5](../research/2026-04-28-rust-plugin-e2e-playground/install-mechanics.md) failure F4 deeper layer) — the v1.2.2 fix only wires the existing script + bumps the exit code. Richer pre-flight (e.g., `tools/list` smoke from the hook) is v1.3+.
 - **Lean and SMT2 language plugins** — deferred to a future stream alongside the polyglot expansion (TypeScript/Go/C/C++/Java). Lean 4 ships a first-party LSP (`lean --server`); SMT-LIB v2 has community LSPs (e.g., `smt-lsp`). Both are tracked as scope-extension candidates; neither is in the v1.2.2 playground gate.
+- **Prolog and ProbLog language plugins** — deferred to the same future stream. SWI-Prolog ships an LSP (`swipl-lsp`); ProbLog (probabilistic Prolog) inherits from Prolog grammar but its facade story is research-mode (probabilistic-query refactors are not the same shape as code-action refactors). Tracked as long-tail candidates.
 
 ---
 
