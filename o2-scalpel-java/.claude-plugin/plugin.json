@@ -6,14 +6,14 @@
     "url": "https://O2.services"
   },
   "category": "development",
-  "description": "Scalpel refactor MCP server for TypeScript via vtsls",
+  "description": "Scalpel refactor MCP server for Java via jdtls",
   "homepage": "https://github.com/o2alexanderfedin/o2-scalpel",
   "license": "MIT",
-  "name": "o2-scalpel-typescript",
+  "name": "o2-scalpel-java",
   "repository": "https://github.com/o2alexanderfedin/o2-scalpel",
   "tags": [
-    "typescript",
-    "vtsls",
+    "java",
+    "jdtls",
     "lsp",
     "refactor",
     "mcp",
