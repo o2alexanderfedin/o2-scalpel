@@ -29,6 +29,6 @@ echo "==> e2e_playground: P0 regression gate PASSED"
 
 echo "==> e2e_playground: invoking pytest with O2_SCALPEL_RUN_E2E=1"
 cd vendor/serena
-O2_SCALPEL_RUN_E2E=1 uv run pytest test/e2e/test_e2e_playground_rust.py -v "$@"
+O2_SCALPEL_RUN_E2E=1 uv run pytest test/e2e/test_e2e_playground_rust.py test/e2e/test_e2e_playground_python.py -v "$@"
 
 echo "==> e2e_playground: complete"
