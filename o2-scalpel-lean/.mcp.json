@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "scalpel-lean": {
+      "args": [
+        "--from",
+        "git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git",
+        "serena-mcp",
+        "--language",
+        "lean"
+      ],
+      "command": "uvx",
+      "env": {}
+    }
+  }
+}
