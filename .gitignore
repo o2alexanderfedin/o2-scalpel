@@ -30,3 +30,6 @@ build/
 .planning/
 .remember/
 .claude/
+
+# Hook telemetry
+research.log
