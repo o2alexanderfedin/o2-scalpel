@@ -99,14 +99,24 @@ See [`docs/install.md`](docs/install.md) for Python and Markdown plugins, and fo
 
 ## Verifying the install end-to-end
 
-The repository ships a Rust playground workspace and a programmatic E2E
-suite that exercises five Rust facades against a real `rust-analyzer`
-process. To run it locally:
+The repository ships Rust and Python playground workspaces and a programmatic
+E2E suite that exercises five facades each against a real LSP process. To run
+locally:
 
 ```sh
+# Rust playground (requires rust-analyzer + cargo)
 rustup component add rust-analyzer
 make e2e-playground
+
+# Python playground (requires pylsp + python3)
+# Both Rust and Python tests run via the same target:
+make e2e-playground
 ```
+
+The Python playground (`playground/python/`) was added in v1.3-C and mirrors
+the Rust playground structure. It exercises `scalpel_split_file`,
+`scalpel_rename`, `scalpel_extract`, `scalpel_inline`, and
+`scalpel_imports_organize` against a `pylsp`-backed Python project.
 
 The same script runs in CI on every push to `main` (see
 `.github/workflows/playground.yml`).
