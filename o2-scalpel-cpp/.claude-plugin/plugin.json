@@ -6,14 +6,14 @@
     "url": "https://O2.services"
   },
   "category": "development",
-  "description": "Scalpel refactor MCP server for Go via gopls",
+  "description": "Scalpel refactor MCP server for C/C++ via clangd",
   "homepage": "https://github.com/o2alexanderfedin/o2-scalpel",
   "license": "MIT",
-  "name": "o2-scalpel-go",
+  "name": "o2-scalpel-cpp",
   "repository": "https://github.com/o2alexanderfedin/o2-scalpel",
   "tags": [
-    "go",
-    "gopls",
+    "cpp",
+    "clangd",
     "lsp",
     "refactor",
     "mcp",
