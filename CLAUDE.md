@@ -2,7 +2,7 @@
 
 ## Project Context
 
-o2.scalpel is a Claude Code plugin that exposes LSP write/refactor operations as MCP tools. It bundles an MCP server built on a fork of [Serena](https://github.com/oraios/serena), extended with language-agnostic facades and per-language `LanguageStrategy` plugins.
+o2.scalpel is a Claude Code plugin that exposes LSP write/refactor operations as MCP tools. The MCP engine (o2-scalpel-engine, forked from [Serena](https://github.com/oraios/serena)) is extended with language-agnostic facades and per-language `LanguageStrategy` plugins.
 
 The authoritative design lives at `docs/design/`. Read those before proposing architecture changes.
 
