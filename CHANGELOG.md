@@ -5,6 +5,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### v1.4.1 — SMT2 dolmenls upgrade (Stream 6 follow-up)
+
+- Lifted `o2-scalpel-smt2` from stub to fully-wired LSP-backed plugin via [dolmenls](https://github.com/Gbury/dolmen) (the Dolmen monorepo's diagnostics-focused SMT-LIB language server, pinned to v0.10).
+- Architectural decision: GitHub-Releases binary download (chosen over an opam channel) per `docs/superpowers/plans/2026-04-28-v1-4-1-smt2-dolmenls/README.md` §"install channel". KISS / user-side simplicity — most users have no OCaml toolchain; pre-built ~13–21 MB asset lands at `~/.local/bin/dolmenls`.
+- New `Smt2Installer` (~250 LoC + 22 tests) following the existing `LspInstaller` ABC; uses a single `("sh", "-c", "<chain>")` invocation that does `mkdir -p && curl -fL && chmod +x`. Auditable verbatim via the dry-run envelope; safety gate (`allow_install=False` default) preserved.
+- Capability surface stays diagnostics-only in the static catalog; runtime `DynamicCapabilityRegistry` (v0.2.0-followup-01) gates per-method support honestly per session — facades not advertised by dolmenls return `CAPABILITY_NOT_AVAILABLE` envelopes.
+- Pre-existing FAILs surfaced en route + fixed atomically per "all errors must be fixed":
+  - `fix(ansible)`: honest-skip hover/completion when `ansible-lint` missing.
+  - `fix(test)`: stale `marketplace.json` path post-v1.2.2 relocation (`<repo>/marketplace.json` → `<repo>/.claude-plugin/marketplace.json`).
+- Submodule tag: `v1.4.1-smt2-dolmenls-complete` (`93bf70a8`); parent tag follows in this release block.
+
 ### Type-error coverage
 
 - **pylsp-mypy enabled** with `live_mode: false` + `dmypy: true` per P5a outcome B (stale_rate 0.00%, p95 2.668s on re-run). Expect occasional latency >1s on first didSave after long idle while the dmypy daemon warms; subsequent didSaves complete in ~1.25s. Reconciles `docs/superpowers/plans/spike-results/PROGRESS.md` decision-log §70.
