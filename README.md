@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/scalpel-banner.png" alt="Scalpel — semantic code surgery, by O2.services" width="720">
+</p>
+
 # o2.scalpel
 
 LSP-driven semantic refactoring for agentic AI clients via the Model Context Protocol.
