@@ -25,7 +25,28 @@ A Claude Code plugin that exposes write/refactor operations from any installed L
 - **Read** comes from Claude Code itself: `definition`, `references`, `hover`, `documentSymbol`, `callHierarchy`.
 - **Write** comes from o2.scalpel: `codeAction`, `codeAction/resolve`, `applyEdit`, `rename`, `executeCommand`, plus 25 task-level ergonomic facades.
 
-Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forked as [`o2-scalpel-engine`](https://github.com/o2alexanderfedin/o2-scalpel-engine)), extended with a language-agnostic facade layer and per-language `LanguageStrategy` plugins. Rust + Python ship at v0.2.0.
+Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forked as [`o2-scalpel-engine`](https://github.com/o2alexanderfedin/o2-scalpel-engine)), extended with a language-agnostic facade layer and per-language `LanguageStrategy` plugins.
+
+## Supported languages (as of v1.4)
+
+12 languages, each shipped as its own Claude Code plugin in the marketplace:
+
+| Plugin | Language | LSP | Install |
+|---|---|---|---|
+| `o2-scalpel-rust` | Rust | rust-analyzer | `rustup component add rust-analyzer` |
+| `o2-scalpel-python` | Python | pylsp + basedpyright + ruff | `pipx install python-lsp-server basedpyright ruff` |
+| `o2-scalpel-markdown` | Markdown | marksman | `brew install marksman` (macOS) / `snap install marksman` (Linux) |
+| `o2-scalpel-typescript` | TypeScript / JavaScript | vtsls | `npm install -g @vtsls/language-server` |
+| `o2-scalpel-go` | Go | gopls | `go install golang.org/x/tools/gopls@latest` |
+| `o2-scalpel-cpp` | C / C++ | clangd | `brew install clangd` / `apt install clangd` |
+| `o2-scalpel-java` | Java | jdtls | `brew install jdtls` / `snap install jdtls --classic` |
+| `o2-scalpel-csharp` | C# | csharp-ls | `dotnet tool install --global csharp-ls` |
+| `o2-scalpel-lean` | Lean 4 | `lean --server` | via elan toolchain manager |
+| `o2-scalpel-smt2` | SMT-LIB v2 | (no production LSP yet — seam reserved) | — |
+| `o2-scalpel-prolog` | Prolog (SWI) | swipl-lsp | via SWI-Prolog pack manager |
+| `o2-scalpel-problog` | ProbLog | (research-mode; inherits Prolog) | `pip install problog` |
+
+LSP installation can be triggered from inside Claude via the `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required for actual subprocess invocation).
 
 ## Relationship to Serena (what Scalpel adds)
 
