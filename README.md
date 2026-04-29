@@ -27,7 +27,7 @@ A Claude Code plugin that exposes write/refactor operations from any installed L
 
 Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forked as [`o2-scalpel-engine`](https://github.com/o2alexanderfedin/o2-scalpel-engine)), extended with a language-agnostic facade layer and per-language `LanguageStrategy` plugins.
 
-## Supported languages (as of v1.4)
+## Supported languages (as of v1.4.1)
 
 12 languages, each shipped as its own Claude Code plugin in the marketplace:
 
@@ -42,7 +42,7 @@ Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forke
 | `o2-scalpel-java` | Java | jdtls | `brew install jdtls` / `snap install jdtls --classic` |
 | `o2-scalpel-csharp` | C# | csharp-ls | `dotnet tool install --global csharp-ls` |
 | `o2-scalpel-lean` | Lean 4 | `lean --server` | via elan toolchain manager |
-| `o2-scalpel-smt2` | SMT-LIB v2 | (no production LSP yet — seam reserved) | — |
+| `o2-scalpel-smt2` | SMT-LIB v2 | [dolmenls](https://github.com/Gbury/dolmen) (v0.10, diagnostics-focused) | pre-built binary download from GitHub Releases — see `scalpel_install_lsp_servers` |
 | `o2-scalpel-prolog` | Prolog (SWI) | swipl-lsp | via SWI-Prolog pack manager |
 | `o2-scalpel-problog` | ProbLog | (research-mode; inherits Prolog) | `pip install problog` |
 
@@ -61,7 +61,7 @@ What Scalpel adds on top of that foundation:
 | **Languages out of the box** | Python, TypeScript, Go, Rust, Java, etc. (programming languages) | Adds **Markdown** as a first-class language (marksman LSP + 4 markdown facades) and ships **per-language Claude Code plugins** for Rust, Python, Markdown, TypeScript, Go, C/C++, Java, C#, Lean, SMT2, Prolog, ProbLog. |
 | **LSP capability gating** | Static; assumes the LSP supports what's asked | **Dynamic capability discovery** (DLp0–DLp6): runtime `supports_method` / `supports_kind` consults the live `ServerCapabilities` + dynamic registrations. Pyright's missing `textDocument/implementation` returns a `CAPABILITY_NOT_AVAILABLE` envelope at dispatch time instead of a slow `SYMBOL_NOT_FOUND`. |
 | **Distribution** | One MCP server, manual project config | **Claude Code marketplace** (`o2alexanderfedin/o2-scalpel`) with per-language plugins (`o2-scalpel-rust`, `o2-scalpel-python`, …) installable via `claude /plugin install`. |
-| **LSP server installation** | Assumes LSPs are pre-installed on `$PATH` | `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required) bootstraps marksman / rust-analyzer / pylsp / basedpyright / ruff / clippy / vtsls / gopls / clangd / jdtls / lean / csharp-ls / etc. via the right per-platform package manager. |
+| **LSP server installation** | Assumes LSPs are pre-installed on `$PATH` | `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required) bootstraps marksman / rust-analyzer / pylsp / basedpyright / ruff / clippy / vtsls / gopls / clangd / jdtls / lean / csharp-ls / dolmenls / etc. via the right per-platform package manager (or pre-built binary download for dolmenls). |
 | **E2E install verification** | — | `playground/{rust,python,markdown}/` workspaces + `make e2e-playground` + `.github/workflows/playground.yml` exercise the full marketplace-add → plugin-install → MCP-boot path against the live GitHub repo. |
 | **Branding & UX** | Generic Serena MCP | Scalpel marketplace, `Alex Fedin & AI Hive®` author block, per-language READMEs with banner, generator-stamped provenance SHAs, `o2-scalpel-newplugin` CLI for adding new languages. |
 
