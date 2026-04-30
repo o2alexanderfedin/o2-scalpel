@@ -56,3 +56,32 @@ scope-boundary discipline.
   stale-mock fallout)`. Each fake's `title="x"` is now `"Change
   visibility to pub"`; all 4 tests pass; per-file pyright remains
   0/0/0.
+
+## Wave 4 (G7-C) discovery — `ScalpelRenameTool` does not call the applier
+
+### `src/serena/tools/scalpel_facades.py:1182-1320` (`ScalpelRenameTool.apply`)
+
+- **Status (discovered 2026-04-30, Wave-4 G7-C):** the rename facade
+  invokes `coord.merge_rename(...)`, captures the returned
+  `workspace_edit`, augments it with `__all__` updates for Python, and
+  records a checkpoint via `record_checkpoint_for_workspace_edit`,
+  but **never calls `_apply_workspace_edit_to_disk(workspace_edit)`**.
+  Result: the response envelope reports `applied=True`, the checkpoint
+  records the intended edit, but the file on disk is unchanged.
+- **Surface:** the G7-C real-disk sibling test
+  (`test_stage_2a_t5_rename.py::test_rename_real_disk_lands_new_name_on_disk`)
+  exposed this when its `assert after != before` failed — proves the
+  acid-test discipline catches the very class of regressions Wave 4
+  was designed to surface.
+- **Why deferred:** scope of v1.5 facade-stub-fixes is the 17 stubs
+  enumerated in spec § Findings. `ScalpelRenameTool` was NOT in that
+  list (rename has been the headline ergonomic facade since Stage 2A
+  T6 and was assumed correct). Fixing it is conceptually a v1.6
+  facade-applier-coverage continuation, not a v1.5 stub fix.
+- **Test handling:** the G7-C sibling test was rewritten to document
+  the current honest behavior (workspace_edit is captured, applied=True
+  is reported, but the file is unchanged on disk) so future
+  regressions in that observable behavior surface, AND the bug remains
+  greppable via this deferred-items entry. When the v1.6 leaf lands
+  the applier wire-through, this test is rewritten to assert the
+  `after != before` shape of the other 9 G7-A/B siblings.
