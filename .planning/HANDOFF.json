@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-04-29T17:07:42-0700",
+  "phase": "v1.6+v1.7",
+  "phase_name": "stub-facade-fix-milestone",
+  "phase_dir": "docs/superpowers/plans/2026-04-29-stub-facade-fix/",
+  "plan": null,
+  "task": null,
+  "total_tasks": 7,
+  "status": "milestone_complete",
+  "completed_tasks": [
+    {"id": 1, "name": "PR 1 (Plan 0): R2 import-cycle break", "status": "done", "tag": "v1.6-p0-refactor-cycle"},
+    {"id": 2, "name": "PR 2 (Plan 1): Snapshot capture + apply_action_and_checkpoint helper", "status": "done", "tag": "v1.6-p1-snapshot-capture"},
+    {"id": 3, "name": "PR 3 (Plan 2): Fix scalpel_apply_capability false success", "status": "done", "tag": "v1.6-p2-apply-capability"},
+    {"id": 4, "name": "PR 4 (Plan 3): Fix split_python apply to disk", "status": "done", "tag": "v1.6-p3-split-python"},
+    {"id": 5, "name": "PR 5 (Plan 4): Fix dry_run_one_step real preview", "status": "done", "tag": "v1.6-p4-dry-run-real"},
+    {"id": 6, "name": "PR 6 (Plan 5): Doc batch + 4 dry_run honoring + 3 threadings + drift-CI gate", "status": "done", "tag": "v1.6-p5-doc-batch"},
+    {"id": 7, "name": "PR 7 (Plan 3-A v1.7): Real rollback inverse-applier", "status": "done", "tag": "v1.7-p7-rollback-inverse-applier"}
+  ],
+  "remaining_tasks": [],
+  "blockers": [],
+  "human_actions_pending": [
+    {"action": "PyPI trusted-publisher config", "context": "User-action via GH settings → Secrets/Variables → Actions; blocks v1.6 PyPI release", "blocking": false},
+    {"action": "GH Actions billing top-up", "context": "Account-level setting; blocks rust-plugin-e2e.yml CI workflow runs", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Adversarial 3-stage pipeline (skeptic+defender, over-planner+minimalist, per-PR TDD subagent)", "rationale": "User directive: 'Use specialized adversarial agents'", "phase": "v1.6"},
+    {"decision": "PR 5 dry_run_one_step promoted from DEFER to P1", "rationale": "Same lying-to-LLM pattern as apply_capability; SHIP-B deferred shadow-workspace, not hardcoded empty StepPreview", "phase": "v1.6"},
+    {"decision": "PR 7 rollback Path A shipped despite v1.7 deferral", "rationale": "User explicit 'resume Stage 3' directive; PR 2 snapshot capture had unblocked Path A", "phase": "v1.7"},
+    {"decision": "Defer Examples blocks per minimalist", "rationale": "Spec § 5.2.1 routes on PREFERRED:/FALLBACK: not Examples; ~700 LoC zero benchmark signal", "phase": "v1.6"},
+    {"decision": "Defer rope-bridge symbol-list semantics for split_python", "rationale": "groups[*] symbol lists are informational in v1.6; un-defer needs concrete fixture demand", "phase": "v1.6"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Awaiting user direction. Remaining gated items: rope-bridge symbol-list semantics (needs fixture demand), Phase 4 horizontal facade expansion (gate=53.3%+10pp benchmark uplift), shadow-workspace simulation (deferred per SHIP-B), v2.0 facade ceiling at 36/40 (needs 3 user requests per facade).",
+  "context_notes": "v1.6 + v1.7 milestones shipped via 7 PRs. Submodule main b7abab7b, parent main d0a7a75d. Audit verdict was 4 STUB / 18 HYBRID / 22 INTENTIONAL across 44 facade rows; v1.6 closed 3 of 4 STUBs + addressed 18 HYBRIDs via doc batch; v1.7 P7 closed the 4th STUB (rollback). Drift-CI gate at test/integration/test_facade_docstring_invariants.py enforces docstring honesty. v1.5 routing baseline 53.3% top-1 still standing as Phase 4 gate floor. 401/401 v1.6+v1.7 surface tests green; pyright 0/0/0 on all touched modules. Remaining failures in broad regression (haxe/kotlin/lean4/etc) are host-binary LSP gaps unrelated to v1.6/v1.7."
+}
