@@ -85,6 +85,16 @@ scope-boundary discipline.
   greppable via this deferred-items entry. When the v1.6 leaf lands
   the applier wire-through, this test is rewritten to assert the
   `after != before` shape of the other 9 G7-A/B siblings.
+- **Status (2026-04-30 — post-v1.5 close-out):** RESOLVED in submodule
+  commit `ff00d230 fix(rename): apply WorkspaceEdit to disk (post-v1.5
+  Rule-1 bug from G7-C)`. Both rename code paths
+  (`ScalpelRenameTool.apply` LSP path AND `_rename_python_module` Rope
+  path) now route the WorkspaceEdit through
+  `_apply_workspace_edit_to_disk(...)` before recording the
+  checkpoint. The Wave-4 documenting test was upgraded to the acid
+  sibling `test_rename_real_disk_lands_new_name_on_disk`, which now
+  asserts `after != before` matching the other 9 G7-A/B siblings.
+  Parent submodule pointer bumped at parent commit `d1c2cf8`.
 
 ## Wave 4 close-out — pre-existing host-LSP-gap failures in test_serena_agent
 
@@ -110,3 +120,21 @@ scope-boundary discipline.
 - **Suite headline:** 1911 passed, 7 skipped, 1 deselected
   (test_spike_s6 fixture-drift), 1 xfailed, 10 failed (all
   host-LSP-gap as above).
+- **Status (2026-04-30 — post-v1.5 close-out):** RESOLVED in submodule
+  commit `3d4ac274 fix(test-host-skip): 5 LSP/runtime binaries missing
+  on dev hosts (post-v1.5)`. Module-level skip markers
+  (`_REQUIRES_GOPLS / _REQUIRES_PWSH / _REQUIRES_HAXE / _REQUIRES_LEAN`
+  in `test_serena_agent.py`, inline `shutil.which("nix")` skipif on
+  the nix test) gate each parametrized test on its host binary's
+  presence (mirrors v1.4.1 `fix(ansible)` pattern + existing
+  `_LANGUAGE_PYTEST_MARKERS[Language.LEAN4]` entry in
+  `test/conftest.py`). Test counts in those two files went from
+  9 failed / 65 passed / 4 skipped / 1 xfailed → 0 failed / 65 passed
+  / 13 skipped / 1 xfailed (9 FAIL→SKIP, 0 regressions). Bonus:
+  per-file pyright on both test files is now 0/0/0 (was 7 errors —
+  1 `SnapshotAssertion` private-import + 6 `Optional[Project]`
+  narrowing). Parent submodule pointer bumped at parent commit
+  `87417fd`. The kotlin-ModelUser case mentioned in the original
+  count never re-failed in re-runs (already CI-skipped via
+  `_LANGUAGE_PYTEST_MARKERS[Language.KOTLIN]`), bringing the actual
+  failure count to 9 on this host.
