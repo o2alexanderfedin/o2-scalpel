@@ -123,3 +123,15 @@ without a clear caller — these accumulate maintenance cost
 catalog entries) without proportional value. 3 user requests is a
 deliberately low bar that still filters out the "neat in theory"
 additions.
+
+## Gate-check log
+
+| Date | Slot | Evidence count | Decision |
+|------|------|----------------|----------|
+| 2026-04-29 | All 4 (initial) | 0 / 3 each | Roadmap filed; no admissions. |
+| 2026-04-30 | All 4 (post-v1.9.x ship) | 0 / 3 each | Re-checked at v1.9.3 hand-back. No new requests since the roadmap was filed. All 4 slots remain open. The 46-tool inventory test stays in force. |
+
+Future gate-checks: append a row each time a release-cycle hand-back
+considers admitting a candidate. Once a slot crosses the 3-request
+threshold, replace its row with the admission commit SHA + a forward
+link to the implementing PR.
