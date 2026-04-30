@@ -85,3 +85,28 @@ scope-boundary discipline.
   greppable via this deferred-items entry. When the v1.6 leaf lands
   the applier wire-through, this test is rewritten to assert the
   `after != before` shape of the other 9 G7-A/B siblings.
+
+## Wave 4 close-out — pre-existing host-LSP-gap failures in test_serena_agent
+
+### `test/serena/test_serena_agent.py` — 9 LSP-startup failures (+ 1 nix)
+
+- **Status (2026-04-30 close-out):** 10 tests fail in
+  `test_serena_agent.py` + `test_symbol_editing.py` on this dev host:
+  go-Helper, powershell-Greet-User, haxe-Main-Class, lean4-add (×2),
+  kotlin-ModelUser, nix double-semicolon, plus 4
+  find_symbol_references_stable variants of the same languages.
+- **Root cause:** each parametrized test attempts to start a
+  language-server (gopls / pwsh / haxe-language-server / lean-server
+  / kotlin-language-server / nix-language-server). Those binaries are
+  not installed on this dev host, so
+  `LanguageServerManagerInitialisationError` propagates.
+- **Why deferred:** unrelated to facade-stub remediation. Likely fix
+  is `pytest.skipif(shutil.which(...))` per language, mirroring the
+  existing `_require_binary` pattern in `test/integration/conftest.py`.
+- **Confirmed not caused by Wave 3 + Wave 4:** I touched only
+  `scalpel_facades.py` (G5 source change) + 4 new test files +
+  7 spike-test extensions; none of those reach the
+  test_serena_agent / test_symbol_editing modules.
+- **Suite headline:** 1911 passed, 7 skipped, 1 deselected
+  (test_spike_s6 fixture-drift), 1 xfailed, 10 failed (all
+  host-LSP-gap as above).
