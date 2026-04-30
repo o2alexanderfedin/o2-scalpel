@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-04-30T02:08:19-0700",
+  "phase": "v1.8 + v1.9 + v1.9.1 + v1.9.2 + v1.9.3",
+  "phase_name": "dashboard-rebrand + phase-4-routing + per-symbol-split + shadow-workspace + ceiling-audit",
+  "phase_dir": "docs/superpowers/plans/2026-04-29-stub-facade-fix/ (parent)",
+  "plan": null,
+  "task": null,
+  "total_tasks": 5,
+  "status": "milestone_complete",
+  "completed_tasks": [
+    {"id": 1, "name": "Dashboard rebrand — Scalpel banner + favicons + window/tray titles + friendly error envelopes; Win32 AppUserModelID hardcode bug fixed in pywebview", "status": "done", "tag": "v1.8-dashboard-rebrand-complete"},
+    {"id": 2, "name": "Item A — Phase 4 routing uplift (TF-IDF + 4× name-boost + per-tool routing_aliases ClassVar; 53.3 → 100.0% top-1; floor ratcheted to 0.633)", "status": "done", "tag": "v1.9-phase4-routing-uplift-complete"},
+    {"id": 3, "name": "Item B — Per-symbol split_file (RopeBridge.move_global + reverse-iteration + package re-export rewriter + buffer-aware eof preflight)", "status": "done", "tag": "v1.9.1-split-python-symbol-list-complete"},
+    {"id": 4, "name": "Item C — Shadow-workspace dry-run (opt-in shadow_mode=True; per-server try/except in find_symbol_*)", "status": "done", "tag": "v1.9.2-shadow-workspace-dryrun-complete"},
+    {"id": 5, "name": "Item D — v2.0 facade ceiling audit (inventory regression guard + 4-slot roadmap with 3-user-request gate)", "status": "done", "tag": "v1.9.3-facade-ceiling-audit-complete"}
+  ],
+  "remaining_tasks": [],
+  "blockers": [],
+  "human_actions_pending": [
+    {"action": "Restart MCP servers and flush uv cache to pick up rebrand", "context": "Live MCP processes (24283, 24284) launched Apr 28 22:03 / Apr 29 15:03 from ~/.cache/uv/archive-v0/<hash>/ — pre-date all v1.8/v1.9 work. To see the rebrand locally: kill stale processes, rm -rf the cached uv archives, /plugin reload o2-scalpel-python (or restart Claude Code). MCP plugin already disconnected this session.", "blocking": false},
+    {"action": "Verify rebrand on freshly-booted MCP server", "context": "After restart, navigate browser to the new dashboard port (likely 24282); should show Scalpel banner + dropped sponsorship banners + friendly error envelopes when agent unavailable.", "blocking": false},
+    {"action": "PyPI trusted-publisher config (carryover from v1.6+v1.7 handoff)", "context": "User-action via GH settings → Secrets/Variables → Actions; blocks PyPI release pipeline.", "blocking": false},
+    {"action": "GH Actions billing top-up (carryover from v1.6+v1.7 handoff)", "context": "Account-level setting; blocks rust-plugin-e2e.yml CI workflow runs.", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "TF-IDF cosine + 4× name-boost + per-tool routing_aliases ClassVar over keyword stuffing", "rationale": "Keeps human-facing docstrings honest; aliases live on the tool class so they're discoverable, drift-resistant, and decoupled from the routing scorer. Generic-name dampener (0.25× for 'use', 'function', 'import', etc.) prevents tools like scalpel_use_function from cannibalizing every prompt that says 'function'.", "phase": "v1.9 / Item A"},
+    {"decision": "Per-symbol move applied in-place via rope.Project.do, NOT batched", "rationale": "MoveGlobal.get_changes computes against the current view; per-symbol moves only converge when each iteration writes to disk and refreshes rope's project state.", "phase": "v1.9.1 / Item B"},
+    {"decision": "Iterate reversed(members) for per-symbol moves", "rationale": "Rope MoveGlobal prepends each symbol to the target file; reversing the user's list yields the user-supplied order in the target. Critical for forward declarations like 'Expr = Union[Num, Add, ...]' which needs Num/Add defined above.", "phase": "v1.9.1 / Item B"},
+    {"decision": "Add post-pass _rewrite_package_reexports for from .OLD import S patterns", "rationale": "Rope's MoveGlobal updates direct importers but not package-level re-exports in __init__.py. The post-pass parses every .py under the project, locates ImportFrom nodes targeting the source module (relative imports keyed by basename + parent-dir match; absolute imports keyed by full dotted path), and rewrites the moved names onto the new modules.", "phase": "v1.9.1 / Item B"},
+    {"decision": "Shadow-mode runs facades with dry_run=False against the shadow copy", "rationale": "A true preview asks 'what would happen if I committed?' — running with dry_run=False against an isolated copy reveals the *applied* state, strictly more informative than the facade's own dry_run=True interpretation, and survives facades whose dry_run path lies (Item C's misbehaving-facade regression test).", "phase": "v1.9.2 / Item C"},
+    {"decision": "Per-server try/except in MultiServerCoordinator.find_symbol_position/range", "rationale": "Ruff's LSP rejects textDocument/documentSymbol with method-not-found; without per-server isolation a single server's gap aborts the entire scan. Discovered while running broad-suite verification of Item C.", "phase": "v1.9.2 / Item C side-fix"},
+    {"decision": "Item D ships an audit + roadmap, not 4 new facades", "rationale": "The gate is '3 user requests per facade' and that demand evidence isn't in hand. Speculative facades accumulate maintenance cost (routing-benchmark trials, drift-CI docstring policing, capability catalog entries) without proportional value. The 4 candidate slots (scalpel_inline_temp, scalpel_remove_dead_code, scalpel_swap_arguments, scalpel_convert_to_classmethod) are documented with LSP backing + admission procedure for when demand arrives.", "phase": "v1.9.3 / Item D"}
+  ],
+  "uncommitted_files": [
+    "docs/superpowers/plans/spike-results/P5a.md (auto-telemetry from spike runs; intentionally not committed)",
+    "docs/superpowers/plans/spike-results/S1.md (auto-telemetry from spike runs; intentionally not committed)",
+    "docs/superpowers/plans/spike-results/S4.md (auto-telemetry from spike runs; intentionally not committed)"
+  ],
+  "next_action": "Awaiting user direction. Suggested next steps: (1) restart MCP servers + flush uv cache to verify the rebrand against a live engine SHA at v1.9.3; (2) cut a v1.9.x consolidated GH release with combined notes from the 5 milestones; (3) tackle one of the 4 v2.0 candidate slots if user demand evidence has accumulated; (4) sweep the remaining pre-existing pyright info-hints (~30 'not accessed' warnings across scalpel_facades.py, scalpel_primitives.py, dashboard.py) — the project's diagnostic-discipline memory note flags those as fix-required.",
+  "context_notes": "5 milestones shipped end-to-end via git-flow (engine: 5 feature branches → main + tags; parent: 5 pointer branches → develop → main + tags). Total 8 engine commits + 5 parent commits + 10 tags. Final regression sweep: 161/161 + 1 honest skip across all touched surfaces. Phase 4 routing benchmark at 100% top-1 (gate was 63.3%). Dogfooded the o2-scalpel-python MCP plugin live during the work — used find_symbol against the rebranded engine to verify MCP introspection still worked post-rebrand. Pre-existing test debt fixed alongside: rollback docstring word count, Stage 3 wave-B dispatch fixtures, S6 buffer-aware eof preflight, E1-py 4-way split byte-identity, E2 dry-run/commit CAPABILITY_NOT_AVAILABLE handling, pylsp_lsp/calcpy_dataclasses workspace mismatch. Browser screenshots at .planning/dashboard-rebrand-screenshot.png (light, stub agent → friendly 500 envelope), .planning/dashboard-rebrand-dark.png (dark, stub agent), .planning/dashboard-live-real-backend.png (LIVE backend on 24283 — proves stale process is still serving old Serena branding because MCP processes pre-date the rebrand and run from uv-cached archive snapshots, not vendor/serena)."
+}
