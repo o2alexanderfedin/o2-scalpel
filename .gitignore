@@ -31,5 +31,9 @@ build/
 .remember/
 .claude/
 
+# Runtime caches (Scalpel agent + tooling)
+.serena/
+.playwright-mcp/
+
 # Hook telemetry
 research.log

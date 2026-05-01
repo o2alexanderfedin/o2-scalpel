@@ -1,6 +1,6 @@
 # P5a - pylsp-mypy stale-rate under live_mode:false + dmypy:true
 
-**Outcome:** B (SHIP with documented cold-daemon warning) - re-run on 2026-04-26 reversed both falsifier axes (stale_rate 0.00%, p95 2.668s); see `solidlsp.decisions.p5a_mypy`. Original 2026-04-24 run recorded INDETERMINATE / "verdict C" (kept below as historical evidence).
+**Outcome:** INDETERMINATE - pylsp-mypy never published mypy-sourced diagnostics; plugin-load failure
 
 **Evidence:**
 
@@ -8,8 +8,8 @@
 - pylsp-mypy plugin loaded (mypy-sourced diagnostic observed): False
 - Stale steps (oracle != pylsp-mypy): 12
 - Stale rate: 100.00%
-- Latencies (s, all 12): [8.0238, 8.0108, 8.0126, 8.0001, 8.0385, 8.0201, 8.039, 8.0279, 8.0146, 8.0176, 8.0519, 8.0286]
-- p95 latency (s): 8.052
+- Latencies (s, all 12): [8.0256, 8.0303, 8.0309, 8.0151, 8.0098, 8.0456, 8.0058, 8.0094, 8.0324, 8.0266, 8.0418, 8.0331]
+- p95 latency (s): 8.046
 - (oracle_errors, pylsp_errors) pairs: [(2, 0), (2, 0), (2, 0), (2, 0), (2, 0), (3, 0), (2, 0), (3, 0), (2, 0), (2, 0), (2, 0), (2, 0)]
 - dmypy oracle failures: []
 
