@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "scalpel-haskell": {
+      "args": [
+        "--from",
+        "git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git",
+        "serena",
+        "start-mcp-server",
+        "--server-name",
+        "scalpel-haskell"
+      ],
+      "command": "uvx",
+      "env": {}
+    }
+  }
+}

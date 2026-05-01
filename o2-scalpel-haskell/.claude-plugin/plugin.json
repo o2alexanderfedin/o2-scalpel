@@ -1,0 +1,22 @@
+{
+  "author": {
+    "email": "af@O2.services",
+    "name": "Alex Fedin & AI Hive®",
+    "url": "https://O2.services"
+  },
+  "category": "development",
+  "description": "Scalpel refactor MCP server for Haskell via haskell-language-server-wrapper",
+  "homepage": "https://github.com/o2alexanderfedin/o2-scalpel",
+  "license": "MIT",
+  "name": "o2-scalpel-haskell",
+  "repository": "https://github.com/o2alexanderfedin/o2-scalpel",
+  "tags": [
+    "haskell",
+    "haskell-language-server-wrapper",
+    "lsp",
+    "refactor",
+    "mcp",
+    "scalpel"
+  ],
+  "version": "1.0.0"
+}

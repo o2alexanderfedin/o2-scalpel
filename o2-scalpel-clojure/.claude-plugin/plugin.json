@@ -1,0 +1,22 @@
+{
+  "author": {
+    "email": "af@O2.services",
+    "name": "Alex Fedin & AI Hive®",
+    "url": "https://O2.services"
+  },
+  "category": "development",
+  "description": "Scalpel refactor MCP server for Clojure via clojure-lsp",
+  "homepage": "https://github.com/o2alexanderfedin/o2-scalpel",
+  "license": "MIT",
+  "name": "o2-scalpel-clojure",
+  "repository": "https://github.com/o2alexanderfedin/o2-scalpel",
+  "tags": [
+    "clojure",
+    "clojure-lsp",
+    "lsp",
+    "refactor",
+    "mcp",
+    "scalpel"
+  ],
+  "version": "1.0.0"
+}
