@@ -27,9 +27,9 @@ A Claude Code plugin that exposes write/refactor operations from any installed L
 
 Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forked as [`o2-scalpel-engine`](https://github.com/o2alexanderfedin/o2-scalpel-engine)), extended with a language-agnostic facade layer and per-language `LanguageStrategy` plugins.
 
-## Supported languages (as of v1.4.1)
+## Supported languages (as of v1.9.9)
 
-12 languages, each shipped as its own Claude Code plugin in the marketplace:
+**23 languages**, each shipped as its own Claude Code plugin in the marketplace:
 
 | Plugin | Language | LSP | Install |
 |---|---|---|---|
@@ -45,8 +45,29 @@ Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forke
 | `o2-scalpel-smt2` | SMT-LIB v2 | [dolmenls](https://github.com/Gbury/dolmen) (v0.10, diagnostics-focused) | pre-built binary download from GitHub Releases — see `scalpel_install_lsp_servers` |
 | `o2-scalpel-prolog` | Prolog (SWI) | swipl-lsp | via SWI-Prolog pack manager |
 | `o2-scalpel-problog` | ProbLog | (research-mode; inherits Prolog) | `pip install problog` |
+| `o2-scalpel-haxe` | Haxe | haxe-language-server | `brew install haxe` + `npm install -g haxe-language-server` |
+| `o2-scalpel-erlang` | Erlang | erlang_ls | `brew install erlang erlang_ls` |
+| `o2-scalpel-ocaml` | OCaml | ocamllsp | `opam install ocaml-lsp-server` |
+| `o2-scalpel-powershell` | PowerShell | PowerShell Editor Services (`pwsh`) | `brew install --cask powershell` |
+| `o2-scalpel-systemverilog` | SystemVerilog | verible-verilog-ls | binary download from [chipsalliance/verible](https://github.com/chipsalliance/verible/releases) |
+| `o2-scalpel-clojure` | Clojure | clojure-lsp | `brew install clojure-lsp/brew/clojure-lsp-native` |
+| `o2-scalpel-crystal` | Crystal | crystalline | `brew install crystal crystalline` |
+| `o2-scalpel-elixir` | Elixir | elixir-ls | `brew install elixir elixir-ls` |
+| `o2-scalpel-haskell` | Haskell | haskell-language-server-wrapper | via [ghcup](https://www.haskell.org/ghcup/) — `ghcup install hls --set` |
+| `o2-scalpel-perl` | Perl | Perl::LanguageServer | `cpanm Perl::LanguageServer` |
+| `o2-scalpel-ruby` | Ruby | ruby-lsp | `gem install --user-install ruby-lsp` |
 
-LSP installation can be triggered from inside Claude via the `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required for actual subprocess invocation).
+LSP installation can also be triggered from inside Claude via the `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required for actual subprocess invocation).
+
+### Engine-level language coverage (LSPs available without a dedicated plugin)
+
+Beyond the 23 first-class plugins, the engine's `LanguageStrategy` registry exposes adapters for **29 additional languages** that can be driven via `serena start-mcp-server --language <name>` directly:
+
+`al`, `ansible`, `bash`, `dart`, `elm`, `fortran`, `fsharp`, `groovy`, `hlsl`, `json`, `julia`, `kotlin`, `lua`, `luau`, `matlab`, `msl`, `nix`, `pascal`, `php`, `r`, `rego`, `scala`, `solidity`, `swift`, `terraform`, `toml`, `vue`, `yaml`, `zig`.
+
+Plus alternate adapters for the same primary languages: `cpp_ccls`, `csharp_omnisharp`, `php_phpactor`, `python_jedi`, `python_ty`, `ruby_solargraph`, `typescript_vts`.
+
+**Total: 52 languages addressable through O2 Scalpel** (23 with dedicated plugins + 29 engine-only). Adding a dedicated plugin for any engine-only language is one `o2-scalpel-newplugin <language>` invocation away.
 
 ## Relationship to Serena (what Scalpel adds)
 
