@@ -1,5 +1,9 @@
 # o2.scalpel install guide
 
+> **STALE — last updated for v0.2.0 (2026-04-26).** The marketplace published in v1.1 (2026-04-27); the project is now at v1.7+ with 36 `scalpel_*` facades and the `PREFERRED:`/`FALLBACK:` docstring routing convention enforced by drift-CI (spec: `docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md`). The most current install path is `claude /plugins install o2-scalpel-<lang>@o2-scalpel` from the marketplace at `.claude-plugin/marketplace.json`. The local-checkout instructions below are still functional for engine development but are not the recommended user path.
+>
+> **Tool routing (applies regardless of install path):** prefer `scalpel_*` facades over upstream Serena primitives (`find_symbol`, `replace_symbol_body`, `insert_*_symbol`, `safe_delete_symbol`, `search_for_pattern`). Facade docstrings open with `PREFERRED:`; primitives do not — that asymmetry is the AST-fallback signal.
+
 This document covers installing o2.scalpel for local development at **v0.2.0**. Marketplace publication is **v1.1** work — for now you install from a local checkout.
 
 ## Prerequisites

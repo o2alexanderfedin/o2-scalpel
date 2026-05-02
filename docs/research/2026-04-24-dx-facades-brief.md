@@ -1,5 +1,7 @@
 # Specialist 4: DX / Facade Designer
 
+> **Status (2026-05-01): superseded** by `docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md` §5 for the Scalpel-vs-Serena routing convention. This 2026-04-24 specialist brief is **historical research input** — it was written pre-fork and pre-`PREFERRED:`/`FALLBACK:` docstring opener (v1.5 P3). Read for design context, not as a live prescription. In particular, references in this brief to "fall back to Serena tools" (e.g. §1.5) describe the AST-fallback layer that the live spec re-codifies via the `PREFERRED:`/`FALLBACK:` opener convention; agents should reach for `scalpel_*` facades first per the live spec, not search this brief for tool names to call.
+
 **Mandate:** Design tools an LLM actually *wants* to call. One tool = one refactor as a human conceives it. No asking the LLM to orchestrate 14 LSP round-trips.
 
 **Running scenario:** `crates/foo/src/massive.rs`, 1,200 lines, 40 `pub fn`, 10 `impl` blocks, 5 `struct`s, 3 `enum`s, tangled `use` statements, needs to become `massive/{types, api, internal, errors}.rs`.
