@@ -6,6 +6,10 @@
           {
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/verify-scalpel-cpp.sh",
             "type": "command"
+          },
+          {
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-scalpel-update.sh",
+            "type": "command"
           }
         ]
       }
