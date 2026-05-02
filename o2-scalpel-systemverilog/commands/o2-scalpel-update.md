@@ -10,6 +10,12 @@ Force-refresh the uvx-cached `o2-scalpel-engine` to the latest commit on `main`,
 The engine is fetched from `git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git` (no SHA pin → HEAD wins on each `--refresh`). Per-plugin caches live under `${CLAUDE_PLUGIN_DATA}/update-cache/` — Claude Code's per-plugin scratch dir, auto-cleaned on plugin uninstall.
 
 !`set -e
+# Tolerate non-matching globs in both bash and zsh (Claude Code may use either).
+# Without these, the o2-scalpel-*/update-cache/ glob below aborts the whole
+# script with 'no matches found' on first install when the data dirs don't
+# exist yet.
+shopt -s nullglob 2>/dev/null || true   # bash
+setopt NULL_GLOB    2>/dev/null || true   # zsh
 ENGINE_URL=git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git
 
 echo "Step 1/4: probing currently-installed engine version"
