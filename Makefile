@@ -12,7 +12,7 @@ SHELL := /bin/bash
 .PHONY: help generate-plugins generate-rust generate-python generate-markdown generate-typescript generate-go generate-cpp generate-java generate-lean generate-smt2 generate-prolog generate-problog generate-csharp verify-plugins-fresh _restamp-banners e2e-playground
 
 OUT ?= .
-LANGUAGES ?= rust python markdown typescript go cpp java lean smt2 prolog problog csharp
+LANGUAGES ?= rust python markdown typescript go cpp java lean smt2 prolog problog csharp clojure crystal elixir erlang haskell haxe ocaml perl powershell ruby systemverilog
 
 PYBIN := vendor/serena/.venv/bin
 GEN := PATH="$(PYBIN):$$PATH" o2-scalpel-newplugin
