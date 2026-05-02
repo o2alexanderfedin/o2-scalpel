@@ -89,6 +89,27 @@ Tag a release after each significant feature or piece is implemented.
 ## Author
 AI Hive(R). Never use "Claude" as the author identifier in commits.
 
+## Tool routing (Scalpel facades vs Serena upstream primitives)
+
+The MCP engine vendored at `vendor/serena/` exposes two tool families to the LLM:
+
+1. **Scalpel facades** — `scalpel_*` tools (e.g. `scalpel_extract`, `scalpel_rename`, `scalpel_split_file`, `scalpel_fix_lints`, `scalpel_organize_imports`, `scalpel_inline`, `scalpel_extract_section`). Their docstring opens with `PREFERRED:`. These are the **first-line surface** for refactor / rename / extract / inline / split / organize-imports / fix-lints work.
+2. **Serena upstream primitives** — `find_symbol`, `replace_symbol_body`, `insert_after_symbol`, `insert_before_symbol`, `safe_delete_symbol`, `search_for_pattern`, `find_referencing_symbols`, `get_symbols_overview`, `read_file`. Their docstrings do NOT open with `PREFERRED:` — that absence is the AST-fallback signal.
+
+**Routing rule:** for any refactor / rename / extract / inline / split / organize-imports / fix-lints task, reach for the matching `scalpel_*` facade FIRST. Only fall back to Serena primitives when (a) the facade returns `CAPABILITY_NOT_AVAILABLE`, (b) no facade exists for the operation, or (c) you need raw symbol-level navigation (find a definition, list a file's symbols).
+
+The `PREFERRED:` / `FALLBACK:` opener convention is enforced by drift-CI at `vendor/serena/test/serena/tools/test_docstring_convention.py`. The authoritative spec is `docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md` §5.
+
 ---
-**Last Updated**: 2026-04-27
+**Last Updated**: 2026-05-01
 **Spun out of**: `hupyy/hupyy-cpp-to-rust`
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

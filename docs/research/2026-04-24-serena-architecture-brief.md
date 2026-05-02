@@ -1,5 +1,7 @@
 # Serena Architecture Map: Focus on Refactoring & LSP Integration
 
+> **Status (2026-05-01): superseded** by post-fork architecture in the live spec tree (`docs/superpowers/specs/`). This 2026-04-24 brief documents upstream Serena's tool surface as observed before the fork; the fork at `o2alexanderfedin/o2-scalpel-engine` has since added 36+ `scalpel_*` facades that take precedence over the upstream primitives described here. Sample code in this brief that calls `find_symbol` / `replace_symbol_body` / `insert_after_symbol` by name is **descriptive of the pre-fork upstream**, not a live prescription — agents should reach for `scalpel_*` facades first per `docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md` §5.
+
 ## 1. Tool Registration & Dispatch
 
 **Location:** `/src/serena/tools/tools_base.py` (lines 463–576)
