@@ -1,11 +1,21 @@
 #!/bin/sh
 # SessionStart hook for o2-scalpel-prolog — checks GitHub for a newer engine commit
-# and writes ~/.cache/o2-scalpel/update-check.json so the status-line script
-# can show the ⬆ /o2-scalpel-update indicator. Throttled to one network call
-# per 6h across all scalpel-* plugins (the cache is shared by SHA file).
+# and writes the update indicator into this plugin's data dir. Throttled so
+# multiple sessions don't hammer the upstream.
+#
+# Cache lives under ${CLAUDE_PLUGIN_DATA}/update-cache/ — Claude Code's
+# per-plugin scratch dir, automatically removed on plugin uninstall (research
+# 2026-05-01: docs/reviews/2026-05-01-scalpel-vs-serena-routing-audit/REPORT.md
+# § Phase D + question 7). When CLAUDE_PLUGIN_DATA is unset (e.g. running
+# the script outside a plugin context), fall back to a per-user cache so the
+# script remains useful for ad-hoc invocations.
 set -eu
 
-CACHE_DIR="${HOME}/.cache/o2-scalpel"
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+    CACHE_DIR="${CLAUDE_PLUGIN_DATA}/update-cache"
+else
+    CACHE_DIR="${HOME}/.cache/o2-scalpel"
+fi
 mkdir -p "$CACHE_DIR"
 CACHE="$CACHE_DIR/update-check.json"
 INSTALLED="$CACHE_DIR/installed-sha"

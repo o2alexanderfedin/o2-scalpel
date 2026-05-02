@@ -1,17 +1,16 @@
 ---
 description: Update the o2-scalpel engine to the latest commit on main and refresh the uvx cache
-allowed-tools: ["Bash(uvx:*)", "Bash(uv:*)", "Bash(git:*)", "Bash(pgrep:*)", "Bash(mkdir:*)", "Bash(printf:*)", "Bash(date:*)", "Bash(grep:*)"]
+allowed-tools: ["Bash(uvx:*)", "Bash(uv:*)", "Bash(git:*)", "Bash(pgrep:*)", "Bash(mkdir:*)", "Bash(printf:*)", "Bash(date:*)", "Bash(grep:*)", "Bash(rm:*)", "Bash(ls:*)"]
 ---
 
 # /o2-scalpel-update
 
-Force-refresh the uvx-cached `o2-scalpel-engine` to the latest commit on `main` and signal that all running `scalpel-*` MCP servers should be restarted to pick up the new code. Also clears the update-available indicator from the status line.
+Force-refresh the uvx-cached `o2-scalpel-engine` to the latest commit on `main`, signal that all running `scalpel-*` MCP servers should be restarted, and clear the update-available indicator from the status line for **all** enabled scalpel-* plugins (their per-plugin caches are written together so one invocation clears every indicator).
 
-The engine is fetched from `git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git` (no SHA pin → HEAD wins on each `--refresh`).
+The engine is fetched from `git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git` (no SHA pin → HEAD wins on each `--refresh`). Per-plugin caches live under `${CLAUDE_PLUGIN_DATA}/update-cache/` — Claude Code's per-plugin scratch dir, auto-cleaned on plugin uninstall.
 
 !`set -e
 ENGINE_URL=git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git
-CACHE_DIR="${HOME}/.cache/o2-scalpel"; mkdir -p "$CACHE_DIR"
 
 echo "Step 1/4: probing currently-installed engine version"
 CURRENT=$(uvx --from "$ENGINE_URL" scalpel --version 2>&1 | tail -1 || true)
@@ -25,10 +24,29 @@ echo "  upstream HEAD: ${REMOTE_SHA:0:12}"
 echo "Step 3/4: forcing uvx cache refresh"
 uvx --refresh --from "$ENGINE_URL" scalpel --version 2>&1 | tail -3
 
-echo "Step 4/4: updating local cache (status-line indicator clears)"
+echo "Step 4/4: updating per-plugin caches (clears the status-line indicator everywhere)"
 NOW=$(date +%s)
-printf '{"update_available":false,"installed_sha":"%s","upstream_sha":"%s","checked":%s}\n' "$REMOTE_SHA" "$REMOTE_SHA" "$NOW" > "$CACHE_DIR/update-check.json"
-printf '%s\n' "$REMOTE_SHA" > "$CACHE_DIR/installed-sha"
+WROTE=0
+# Glob across all installed scalpel-* plugin data dirs so a single
+# /o2-scalpel-update clears the indicator for every enabled plugin at once.
+for D in "$HOME"/.claude/plugins/data/o2-scalpel-*/update-cache/; do
+    [ -d "$D" ] || continue
+    printf '{"update_available":false,"installed_sha":"%s","upstream_sha":"%s","checked":%s}\n' "$REMOTE_SHA" "$REMOTE_SHA" "$NOW" > "$D/update-check.json"
+    printf '%s\n' "$REMOTE_SHA" > "$D/installed-sha"
+    WROTE=$((WROTE + 1))
+done
+# Also cover the slash command's own plugin-data dir (set when the body runs).
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+    OWN_DIR="$CLAUDE_PLUGIN_DATA/update-cache"
+    mkdir -p "$OWN_DIR"
+    printf '{"update_available":false,"installed_sha":"%s","upstream_sha":"%s","checked":%s}\n' "$REMOTE_SHA" "$REMOTE_SHA" "$NOW" > "$OWN_DIR/update-check.json"
+    printf '%s\n' "$REMOTE_SHA" > "$OWN_DIR/installed-sha"
+fi
+# One-time migration cleanup: pre-v1.12 wrote to ~/.cache/o2-scalpel/ which
+# isn't auto-cleaned on uninstall. Remove it here so upgrading users don't
+# leak the legacy cache forever.
+rm -rf "$HOME/.cache/o2-scalpel" 2>/dev/null || true
+echo "  cleared $WROTE plugin cache(s) + legacy ~/.cache/o2-scalpel/ if present"
 
 echo
 echo "Refresh complete. Now restart any running scalpel-* MCP servers so they load the new engine code:"
