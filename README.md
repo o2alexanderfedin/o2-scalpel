@@ -27,9 +27,13 @@ A Claude Code plugin that exposes write/refactor operations from any installed L
 
 Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forked as [`o2-scalpel-engine`](https://github.com/o2alexanderfedin/o2-scalpel-engine)), extended with a language-agnostic facade layer and per-language `LanguageStrategy` plugins.
 
-## Supported languages (as of v1.9.9)
+## Supported languages (as of v1.14)
 
-**23 languages**, each shipped as its own Claude Code plugin in the marketplace:
+**52 languages**, each shipped as its own Claude Code plugin in the marketplace.
+
+### First-class plugins (curated facade sets)
+
+These 23 plugins ship language-tailored facade sets (split_file, organize_imports, the v1.5 P2 Java triple, the four Markdown facades, etc.) on top of the universal pair:
 
 | Plugin | Language | LSP | Install |
 |---|---|---|---|
@@ -57,17 +61,49 @@ Built on top of the [Serena](https://github.com/oraios/serena) MCP server (forke
 | `o2-scalpel-perl` | Perl | Perl::LanguageServer | `cpanm Perl::LanguageServer` |
 | `o2-scalpel-ruby` | Ruby | ruby-lsp | `gem install --user-install ruby-lsp` |
 
+### Generated minimal plugins (v1.14)
+
+These 29 plugins were generated from the universal minimal facade pair (`rename_symbol` + `fix_lints`, backed by `textDocument/rename` and `textDocument/codeAction` + `workspace/applyEdit`). They work with any LSP that implements those LSP methods. To extend a plugin with a richer, language-tailored facade set, add a `_StrategyView` row to `serena.refactoring.cli_newplugin._LANGUAGE_METADATA` and re-run `make generate-plugins`.
+
+| Plugin | Language | LSP | Install |
+|---|---|---|---|
+| `o2-scalpel-al` | AL | al-language-server | AL Language Server (auto-downloads VSIX from VS Code marketplace) — see plugin README |
+| `o2-scalpel-ansible` | Ansible | ansible-language-server | `npm install -g @ansible/ansible-language-server` |
+| `o2-scalpel-bash` | Bash | bash-language-server | `npm install -g bash-language-server` |
+| `o2-scalpel-dart` | Dart | `dart language-server` | Dart SDK ships dart language-server — install Dart from dart.dev |
+| `o2-scalpel-elm` | Elm | elm-language-server | `npm install -g @elm-tooling/elm-language-server` |
+| `o2-scalpel-fortran` | Fortran | fortls | `pip install fortls` |
+| `o2-scalpel-fsharp` | F# | fsautocomplete | `dotnet tool install --global fsautocomplete` |
+| `o2-scalpel-groovy` | Groovy | groovy-language-server | see [GroovyLanguageServer/groovy-language-server](https://github.com/GroovyLanguageServer/groovy-language-server) (jar download) |
+| `o2-scalpel-hlsl` | HLSL | shader-language-server | see [antaalt/shader-language-server](https://github.com/antaalt/shader-language-server) (binary download) |
+| `o2-scalpel-json` | JSON | vscode-json-languageserver | `npm install -g vscode-langservers-extracted` |
+| `o2-scalpel-julia` | Julia | LanguageServer.jl | `julia --project=@languageserver -e 'using Pkg; Pkg.add("LanguageServer")'` |
+| `o2-scalpel-kotlin` | Kotlin | kotlin-language-server | see [fwcd/kotlin-language-server](https://github.com/fwcd/kotlin-language-server) (release download) |
+| `o2-scalpel-lua` | Lua | lua-language-server | `brew install lua-language-server` (macOS) — see [LuaLS/lua-language-server](https://github.com/LuaLS/lua-language-server) |
+| `o2-scalpel-luau` | Luau | luau-lsp | see [JohnnyMorganz/luau-lsp](https://github.com/JohnnyMorganz/luau-lsp) (release download) |
+| `o2-scalpel-matlab` | MATLAB | matlab-language-server | MathWorks MATLAB R2021b+ ships matlab-language-server — see plugin README |
+| `o2-scalpel-msl` | MSL | (custom pygls server) | see plugin README (custom pygls server for mIRC scripting) |
+| `o2-scalpel-nix` | Nix | nixd | see [nix-community/nixd](https://github.com/nix-community/nixd) (cargo or nix-env install) |
+| `o2-scalpel-pascal` | Pascal | pasls | see [genericptr/pascal-language-server](https://github.com/genericptr/pascal-language-server) (build from source) |
+| `o2-scalpel-php` | PHP | intelephense | `npm install -g intelephense` (closed-source freemium; see also `php_phpactor` alternate) |
+| `o2-scalpel-r` | R | languageserver | `Rscript -e 'install.packages("languageserver")'` |
+| `o2-scalpel-rego` | Rego | regal | see [StyraInc/regal](https://github.com/StyraInc/regal) (binary download) |
+| `o2-scalpel-scala` | Scala | metals | `brew install coursier && cs install metals` (macOS) |
+| `o2-scalpel-solidity` | Solidity | nomicfoundation-solidity-language-server | `npm install -g @nomicfoundation/solidity-language-server` |
+| `o2-scalpel-swift` | Swift | sourcekit-lsp | Swift toolchain ships sourcekit-lsp — install Swift from swift.org |
+| `o2-scalpel-terraform` | Terraform | terraform-ls | `brew install hashicorp/tap/terraform-ls` (macOS) — or download from releases.hashicorp.com |
+| `o2-scalpel-toml` | TOML | taplo | `cargo install --features lsp --locked taplo-cli` |
+| `o2-scalpel-vue` | Vue | vue-language-server | `npm install -g @vue/language-server` |
+| `o2-scalpel-yaml` | YAML | yaml-language-server | `npm install -g yaml-language-server` |
+| `o2-scalpel-zig` | Zig | zls | see [zigtools/zls](https://github.com/zigtools/zls) (binary download or zig build) |
+
 LSP installation can also be triggered from inside Claude via the `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required for actual subprocess invocation).
 
-### Engine-level language coverage (LSPs available without a dedicated plugin)
+### Engine-level language coverage
 
-Beyond the 23 first-class plugins, the engine's `LanguageStrategy` registry exposes adapters for **29 additional languages** that can be driven via `serena start-mcp-server --language <name>` directly:
+As of v1.14 every primary `LanguageStrategy` adapter in the engine ships as a dedicated plugin tree — the previous 29-language gap between the engine registry and the marketplace is closed. Plus alternate adapters for the same primary languages: `cpp_ccls`, `csharp_omnisharp`, `php_phpactor`, `python_jedi`, `python_ty`, `ruby_solargraph`, `typescript_vts` — these are not yet shipped as dedicated plugins (pending a directory-naming convention discussion); they remain accessible via `serena start-mcp-server --language <name>` directly.
 
-`al`, `ansible`, `bash`, `dart`, `elm`, `fortran`, `fsharp`, `groovy`, `hlsl`, `json`, `julia`, `kotlin`, `lua`, `luau`, `matlab`, `msl`, `nix`, `pascal`, `php`, `r`, `rego`, `scala`, `solidity`, `swift`, `terraform`, `toml`, `vue`, `yaml`, `zig`.
-
-Plus alternate adapters for the same primary languages: `cpp_ccls`, `csharp_omnisharp`, `php_phpactor`, `python_jedi`, `python_ty`, `ruby_solargraph`, `typescript_vts`.
-
-**Total: 52 languages addressable through O2 Scalpel** (23 with dedicated plugins + 29 engine-only). Adding a dedicated plugin for any engine-only language is one `o2-scalpel-newplugin <language>` invocation away.
+**Total: 52 languages addressable through O2 Scalpel** — all 52 ship as dedicated plugins. Adding more languages (e.g. an alternate-adapter plugin) is one `o2-scalpel-newplugin <language>` invocation away.
 
 ## Relationship to Serena (what Scalpel adds)
 
@@ -151,8 +187,8 @@ Every installed plugin contributes the following slash commands to Claude Code:
 
 | Command | Scope | What it does |
 |---|---|---|
-| `/o2-scalpel-<lang>-dashboard` | per-plugin (one per installed language) | Discovers the running `scalpel-<lang>` MCP server's dashboard port (`pgrep` + `lsof`, pinned to `--server-name` so multiple scalpel-* servers don't collide) and opens it in the browser. **Lazy-bind caveat**: the engine binds the dashboard only after the first `scalpel_*` tool call against that server, so if discovery reports "not yet bound", invoke any facade (e.g. `scalpel_workspace_health`) and re-run. Available variants follow the [Supported languages](#supported-languages-as-of-v199) table — e.g. `/o2-scalpel-rust-dashboard`, `/o2-scalpel-python-dashboard`, `/o2-scalpel-markdown-dashboard`, etc. |
-| `/o2-scalpel-update` | engine-global | Force-refreshes the uvx-cached `o2-scalpel-engine` to the latest commit on `main` (`uvx --refresh --from git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git scalpel --version`), writes `~/.cache/o2-scalpel/installed-sha`, clears the status-line update-available indicator, and prints restart guidance for any running `scalpel-*` MCP servers. **Does not auto-restart MCP servers** — restart Claude Code (or kill the parent PIDs the command lists) so they re-spawn against the new SHA. The body is byte-identical across all 23 plugins so Claude Code's plugin registry surfaces a single command. |
+| `/o2-scalpel-<lang>-dashboard` | per-plugin (one per installed language) | Discovers the running `scalpel-<lang>` MCP server's dashboard port (`pgrep` + `lsof`, pinned to `--server-name` so multiple scalpel-* servers don't collide) and opens it in the browser. **Lazy-bind caveat**: the engine binds the dashboard only after the first `scalpel_*` tool call against that server, so if discovery reports "not yet bound", invoke any facade (e.g. `scalpel_workspace_health`) and re-run. Available variants follow the [Supported languages](#supported-languages-as-of-v114) table — e.g. `/o2-scalpel-rust-dashboard`, `/o2-scalpel-python-dashboard`, `/o2-scalpel-markdown-dashboard`, etc. |
+| `/o2-scalpel-update` | engine-global | Force-refreshes the uvx-cached `o2-scalpel-engine` to the latest commit on `main` (`uvx --refresh --from git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git scalpel --version`), writes `~/.cache/o2-scalpel/installed-sha`, clears the status-line update-available indicator, and prints restart guidance for any running `scalpel-*` MCP servers. **Does not auto-restart MCP servers** — restart Claude Code (or kill the parent PIDs the command lists) so they re-spawn against the new SHA. The body is byte-identical across all 52 plugins so Claude Code's plugin registry surfaces a single command. |
 
 ## Status-line update indicator
 
