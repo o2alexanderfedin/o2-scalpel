@@ -74,13 +74,13 @@ jobs:
           restore-keys: |
             uv-venv-${{ runner.os }}-3.11-lock-
 
-      - name: Install Python deps (engine submodule)
+      - name: Install Python deps (engine submodule, with dev extras for pytest)
         working-directory: vendor/serena
         run: |
           if [ ! -d ".venv" ]; then
             uv venv
           fi
-          uv sync --frozen
+          uv sync --frozen --extra dev
 
       - name: Run playground E2E (SC-1 P0 gate + 6 tests)
         run: bash scripts/e2e_playground.sh
