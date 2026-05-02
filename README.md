@@ -145,6 +145,36 @@ make verify-plugins-fresh
 See [`docs/install.md`](docs/install.md) for Python and Markdown plugins, and for `pylsp`,
 `basedpyright-langserver`, `ruff`, and `marksman` setup.
 
+## Slash commands
+
+Every installed plugin contributes the following slash commands to Claude Code:
+
+| Command | Scope | What it does |
+|---|---|---|
+| `/o2-scalpel-<lang>-dashboard` | per-plugin (one per installed language) | Discovers the running `scalpel-<lang>` MCP server's dashboard port (`pgrep` + `lsof`, pinned to `--server-name` so multiple scalpel-* servers don't collide) and opens it in the browser. **Lazy-bind caveat**: the engine binds the dashboard only after the first `scalpel_*` tool call against that server, so if discovery reports "not yet bound", invoke any facade (e.g. `scalpel_workspace_health`) and re-run. Available variants follow the [Supported languages](#supported-languages-as-of-v199) table — e.g. `/o2-scalpel-rust-dashboard`, `/o2-scalpel-python-dashboard`, `/o2-scalpel-markdown-dashboard`, etc. |
+| `/o2-scalpel-update` | engine-global | Force-refreshes the uvx-cached `o2-scalpel-engine` to the latest commit on `main` (`uvx --refresh --from git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git scalpel --version`), writes `~/.cache/o2-scalpel/installed-sha`, clears the status-line update-available indicator, and prints restart guidance for any running `scalpel-*` MCP servers. **Does not auto-restart MCP servers** — restart Claude Code (or kill the parent PIDs the command lists) so they re-spawn against the new SHA. The body is byte-identical across all 23 plugins so Claude Code's plugin registry surfaces a single command. |
+
+## Status-line update indicator
+
+Every plugin also ships a SessionStart hook (`hooks/check-scalpel-update.sh`) that probes `git ls-remote` for upstream HEAD — throttled to **one network call per 6 hours, shared across all enabled scalpel-\* plugins** via `~/.cache/o2-scalpel/update-check.json` — and a standalone `hooks/scalpel-statusline.sh` POSIX-shell emitter (no Python, no uvx, < 5 ms) that prints the yellow `⬆ /o2-scalpel-update` segment when an update is available. Wire it into `~/.claude/settings.json` as `statusLine.command`:
+
+```jsonc
+{
+  "statusLine": {
+    "type": "command",
+    "command": "${HOME}/.claude/plugins/marketplaces/o2-scalpel/o2-scalpel-markdown/hooks/scalpel-statusline.sh"
+  }
+}
+```
+
+(Pick any installed scalpel-* plugin's copy — they're byte-identical.) For the full setup recipe — wrapping with an existing status-line, cache-file reference, force-recheck, disable instructions — see [`docs/reviews/2026-05-01-scalpel-vs-serena-routing-audit/STATUSLINE.md`](docs/reviews/2026-05-01-scalpel-vs-serena-routing-audit/STATUSLINE.md).
+
+The cache schema and integration model deliberately mirror the [`gsd`](https://github.com/o2alexanderfedin/get-shit-done) update indicator so the same mental model applies.
+
+## Routing convention
+
+Scalpel facades open with a `PREFERRED:` / `FALLBACK:` opener in their MCP descriptions; Serena upstream primitives (re-exposed unchanged) intentionally don't. The absence of the opener is the AST-fallback signal — Claude Code routes to the LSP-backed Scalpel facade by default and falls back to the Serena primitive only when no facade matches. The convention is enforced by a drift-CI regex over `Scalpel*Tools` descriptions. Full spec: [`docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md`](docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md). Recent audit: [`docs/reviews/2026-05-01-scalpel-vs-serena-routing-audit/REPORT.md`](docs/reviews/2026-05-01-scalpel-vs-serena-routing-audit/REPORT.md) + [`PLAN.md`](docs/reviews/2026-05-01-scalpel-vs-serena-routing-audit/PLAN.md).
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
