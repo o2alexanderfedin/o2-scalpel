@@ -8,8 +8,8 @@
 - pylsp-mypy plugin loaded (mypy-sourced diagnostic observed): False
 - Stale steps (oracle != pylsp-mypy): 12
 - Stale rate: 100.00%
-- Latencies (s, all 12): [8.0325, 8.0238, 8.0163, 8.0133, 8.0102, 8.0057, 8.0461, 8.0097, 8.0175, 8.0302, 8.0349, 8.033]
-- p95 latency (s): 8.046
+- Latencies (s, all 12): [8.0545, 8.0517, 8.0512, 8.0263, 8.0257, 8.0511, 8.0394, 8.0209, 8.0061, 8.0304, 8.0414, 8.0129]
+- p95 latency (s): 8.054
 - (oracle_errors, pylsp_errors) pairs: [(2, 0), (2, 0), (2, 0), (2, 0), (2, 0), (3, 0), (2, 0), (3, 0), (2, 0), (2, 0), (2, 0), (2, 0)]
 - dmypy oracle failures: []
 
