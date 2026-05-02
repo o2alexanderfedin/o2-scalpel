@@ -37,3 +37,6 @@ build/
 
 # Hook telemetry
 research.log
+
+# Graphify knowledge-graph output (rebuildable via `graphify .`)
+graphify-out/

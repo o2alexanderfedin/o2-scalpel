@@ -36,11 +36,14 @@ REQUEST=$(printf '%s\n%s\n%s\n' \
   '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
 
-# Launch the server via uvx --from <repo-root>. Pass --language so the server
-# loads the right strategy. Timeout safeguards against a hung stdio pipe.
+# Launch the server via uvx --from <repo-root>. The published .mcp.json files
+# invoke `serena start-mcp-server --server-name scalpel-<lang>`; we match that
+# contract here so the smoke test covers what users actually run.
+# (`serena-mcp` was a console-script in pre-eb453976 versions; upstream
+# replaced it with the `start-mcp-server` subcommand.)
 STDERR_LOG="/tmp/stage_1i_mcp.${LANG_ARG}.stderr"
 RESPONSE=$(printf '%s' "${REQUEST}" \
-  | timeout 30 uvx --from "${REPO_ROOT}/vendor/serena" serena-mcp --language "${LANG_ARG}" 2>"${STDERR_LOG}" \
+  | timeout 30 uvx --from "${REPO_ROOT}/vendor/serena" serena start-mcp-server --server-name "scalpel-${LANG_ARG}" 2>"${STDERR_LOG}" \
   || { echo "smoke: uvx run failed (exit $?). stderr saved at ${STDERR_LOG}" >&2; exit 67; })
 
 # Parse the tools/list response (id == 2) and emit tool names one per line.
