@@ -11,13 +11,15 @@ LSP-driven semantic refactoring for agentic AI clients via the Model Context Pro
 **v1.13.2** — engine bumps shipped through `v1.13.2-dashboard-no-awk` (dashboard port discovery without `awk`). **46 always-on MCP tools** ship across all 23 per-language plugins (regenerated at marketplace `version: 1.0.5`):
 
 - **35 task-level facades** in `vendor/serena/src/serena/tools/scalpel_facades.py`:
-  - **Cross-language core (5)**: `scalpel_split_file`, `scalpel_extract`, `scalpel_inline`, `scalpel_rename`, `scalpel_imports_organize`.
+  - **Cross-language core (5)**: `split_file`, `extract`, `inline`, `rename`, `imports_organize`.
   - **Rust-leaning (12)**: `convert_module_layout`, `change_visibility`, `tidy_structure`, `change_type_shape`, `change_return_type`, `complete_match_arms`, `extract_lifetime`, `expand_glob_imports`, `generate_trait_impl_scaffold`, `generate_member`, `expand_macro`, `verify_after_refactor`.
   - **Python-leaning (11)**: `convert_to_method_object`, `local_to_field`, `use_function`, `introduce_parameter`, `generate_from_undefined`, `auto_import_specialized`, `fix_lints`, `ignore_diagnostic`, `convert_to_async`, `annotate_return_type`, `convert_from_relative_imports`.
   - **Java (2)**: `generate_constructor`, `override_methods`.
   - **Markdown (4)**: `rename_heading`, `split_doc`, `extract_section`, `organize_links`.
   - **Transaction (1)**: `transaction_commit`.
-- **11 primitives & safety/diagnostic tools** in `vendor/serena/src/serena/tools/scalpel_primitives.py`: `scalpel_capabilities_list`, `scalpel_capability_describe`, `scalpel_apply_capability`, `scalpel_dry_run_compose`, `scalpel_confirm_annotations`, `scalpel_rollback`, `scalpel_transaction_rollback`, `scalpel_workspace_health`, `scalpel_execute_command`, `scalpel_reload_plugins`, `scalpel_install_lsp_servers`.
+- **11 primitives & safety/diagnostic tools** in `vendor/serena/src/serena/tools/scalpel_primitives.py`: `capabilities_list`, `capability_describe`, `apply_capability`, `dry_run_compose`, `confirm_annotations`, `rollback`, `transaction_rollback`, `workspace_health`, `execute_command`, `reload_plugins`, `install_lsp_servers`.
+
+> **v2.0 wire-name cleanup** (spec [`docs/superpowers/specs/2026-05-03-v2.0-mcp-wire-name-cleanup-spec.md`](docs/superpowers/specs/2026-05-03-v2.0-mcp-wire-name-cleanup-spec.md)) dropped the legacy `scalpel_` prefix from every tool name. The MCP wire format is now `mcp__plugin_o2-scalpel-<lang>_lsp__<verb>` (was `mcp__plugin_o2-scalpel-<lang>_scalpel-<lang>__scalpel_<verb>`). The legacy `scalpel_<verb>` names remain as deprecated aliases through v2.x and are removed in v2.1 — run `/plugin update o2-scalpel-<lang>@o2-scalpel` to pick up the new wire format.
 
 Milestones since v0.2.0 (in order): v1.1 marketplace + persistent checkpoints, v1.1.1 markdown + LspInstaller, v1.2 installer expansion + marketplace reconciliation, v1.2.2 playground (remote-install smoke green), v1.3 PyPI + Linux CI + Python/Markdown playgrounds, v1.4 Stream 6 polyglot (TypeScript / Go / C-C++ / Java / Lean / SMT2 / Prolog / ProbLog), v1.4.1 SMT2 → real `dolmenls`, v1.5 `PREFERRED:`/`FALLBACK:` routing convention + Java facades, v1.6 / v1.7 stub-facade fix + real rollback inverse-applier, v1.8 dashboard rebrand, v1.9 Phase 4 routing uplift, v1.10 per-plugin `/<plugin>-dashboard` slash command + Scalpel-vs-Serena routing audit, v1.12 cache to plugin-data dir, v1.13.0–v1.13.2 engine refinements (`absolute_path` symbol output, `supports_kind` LSP kind hierarchy, dashboard port discovery without `awk`).
 
@@ -51,7 +53,7 @@ These 23 plugins ship language-tailored facade sets (`split_file`, `organize_imp
 | `o2-scalpel-java` | Java | jdtls | `brew install jdtls` / `snap install jdtls --classic` |
 | `o2-scalpel-csharp` | C# | csharp-ls | `dotnet tool install --global csharp-ls` |
 | `o2-scalpel-lean` | Lean 4 | `lean --server` | via elan toolchain manager |
-| `o2-scalpel-smt2` | SMT-LIB v2 | [dolmenls](https://github.com/Gbury/dolmen) (v0.10, diagnostics-focused) | pre-built binary download from GitHub Releases — see `scalpel_install_lsp_servers` |
+| `o2-scalpel-smt2` | SMT-LIB v2 | [dolmenls](https://github.com/Gbury/dolmen) (v0.10, diagnostics-focused) | pre-built binary download from GitHub Releases — see `install_lsp_servers` |
 | `o2-scalpel-prolog` | Prolog (SWI) | swipl-lsp | via SWI-Prolog pack manager (`swipl -g 'pack_install(lsp_server)' -t halt`) |
 | `o2-scalpel-problog` | ProbLog | (research-mode; inherits Prolog) | `pip install problog` + `swipl` on PATH |
 | `o2-scalpel-haxe` | Haxe | haxe-language-server | `brew install haxe` + `npm install -g haxe-language-server` (also needs `nekovm` on PATH) |
@@ -102,7 +104,7 @@ These 29 plugins were generated from the universal minimal facade pair (`rename_
 | `o2-scalpel-yaml` | YAML | yaml-language-server | `npm install -g yaml-language-server` |
 | `o2-scalpel-zig` | Zig | zls | see [zigtools/zls](https://github.com/zigtools/zls) (binary download or zig build) |
 
-LSP installation can also be triggered from inside Claude via the `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required for actual subprocess invocation).
+LSP installation can also be triggered from inside Claude via the `install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required for actual subprocess invocation).
 
 ### Engine-level language coverage
 
@@ -121,11 +123,11 @@ What Scalpel adds on top of that foundation:
 | Layer | Serena (upstream) | Scalpel (this project) |
 |---|---|---|
 | **Symbol-level edits** | `rename_symbol`, `replace_symbol_body`, `insert_*_symbol`, `safe_delete_symbol` | (inherited from Serena — re-exposed unchanged) |
-| **Task-level facades** | — | **35 `scalpel_*` facades + 11 primitives = 46 always-on tools**: `split_file`, `extract`, `inline`, `rename`, `imports_organize`, `change_visibility`, `tidy_structure`, `complete_match_arms`, `extract_lifetime`, `convert_to_async`, `annotate_return_type`, `generate_constructor`, `override_methods`, `rename_heading`, `split_doc`, `extract_section`, `organize_links`, etc. — task-shaped wrappers around `textDocument/codeAction` + Serena's primitives. |
+| **Task-level facades** | — | **35 Scalpel facades + 11 primitives = 46 always-on tools**: `split_file`, `extract`, `inline`, `rename`, `imports_organize`, `change_visibility`, `tidy_structure`, `complete_match_arms`, `extract_lifetime`, `convert_to_async`, `annotate_return_type`, `generate_constructor`, `override_methods`, `rename_heading`, `split_doc`, `extract_section`, `organize_links`, etc. — task-shaped wrappers around `textDocument/codeAction` + Serena's primitives. (v2.0: legacy `scalpel_<verb>` aliases live through v2.x.) |
 | **Languages out of the box** | Python, TypeScript, Go, Rust, Java, etc. (programming languages) | Adds **Markdown** as a first-class language (marksman LSP + 4 markdown facades) and ships **52 per-language Claude Code plugins** — 23 with curated facade sets (Rust, Python, Markdown, TypeScript, Go, C/C++, Java, C#, Lean, SMT2, Prolog, ProbLog, Haxe, Erlang, OCaml, PowerShell, SystemVerilog, Clojure, Crystal, Elixir, Haskell, Perl, Ruby) and 29 generated minimal plugins (`rename_symbol` + `fix_lints` against any conforming LSP) covering the rest of the engine's adapter registry. |
 | **LSP capability gating** | Static; assumes the LSP supports what's asked | **Dynamic capability discovery** (DLp0–DLp6): runtime `supports_method` / `supports_kind` consults the live `ServerCapabilities` + dynamic registrations. Pyright's missing `textDocument/implementation` returns a `CAPABILITY_NOT_AVAILABLE` envelope at dispatch time instead of a slow `SYMBOL_NOT_FOUND`. |
 | **Distribution** | One MCP server, manual project config | **Claude Code marketplace** (`o2alexanderfedin/o2-scalpel`) with per-language plugins (`o2-scalpel-rust`, `o2-scalpel-python`, …) installable via `claude /plugin install`. |
-| **LSP server installation** | Assumes LSPs are pre-installed on `$PATH` | `scalpel_install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required) bootstraps marksman / rust-analyzer / pylsp / basedpyright / ruff / clippy / vtsls / gopls / clangd / jdtls / lean / csharp-ls / dolmenls / etc. via the right per-platform package manager (or pre-built binary download for dolmenls). |
+| **LSP server installation** | Assumes LSPs are pre-installed on `$PATH` | `install_lsp_servers` MCP tool (safety-gated: `dry_run=True` default + `allow_install=True` required) bootstraps marksman / rust-analyzer / pylsp / basedpyright / ruff / clippy / vtsls / gopls / clangd / jdtls / lean / csharp-ls / dolmenls / etc. via the right per-platform package manager (or pre-built binary download for dolmenls). |
 | **E2E install verification** | — | `playground/{rust,python,markdown}/` workspaces + `make e2e-playground` + `.github/workflows/playground.yml` exercise the full marketplace-add → plugin-install → MCP-boot path against the live GitHub repo. |
 | **Branding & UX** | Generic Serena MCP | Scalpel marketplace, `Alex Fedin & AI Hive®` author block, per-language READMEs with banner, generator-stamped provenance SHAs, `o2-scalpel-newplugin` CLI for adding new languages. |
 
@@ -158,10 +160,12 @@ GitHub via the plugin's `.mcp.json` `git+URL` reference. No submodules
 are cloned into your workspace.
 
 To verify the install worked, ask Claude to call the
-`scalpel_workspace_health` MCP tool — it reports LSP binary status,
+`workspace_health` MCP tool — it reports LSP binary status,
 dynamic capability discovery results, and engine version. (It is an MCP
-tool, not a slash command — Claude dispatches it directly via the
-`mcp__plugin_o2-scalpel-rust__scalpel_workspace_health` namespace.)
+tool, not a slash command — Claude dispatches it directly via the v2.0
+`mcp__plugin_o2-scalpel-rust_lsp__workspace_health` namespace; the legacy
+`mcp__plugin_o2-scalpel-rust_scalpel-rust__scalpel_workspace_health`
+remains addressable through v2.x.)
 
 ### Engine developers only: local-dev shortcut
 
@@ -209,7 +213,7 @@ Every installed plugin contributes the following slash commands to Claude Code:
 
 | Command | Scope | What it does |
 |---|---|---|
-| `/o2-scalpel-<lang>-dashboard` | per-plugin (one per installed language) | Discovers the running `scalpel-<lang>` MCP server's dashboard port (`pgrep -f "start-mcp-server.*--server-name scalpel-<lang>"` cross-referenced against `lsof -iTCP -sTCP:LISTEN`, no `awk`, pinned to `--server-name` so multiple scalpel-* servers don't collide) and opens it in the browser. **Lazy-bind caveat**: the engine binds the dashboard only after the first `scalpel_*` tool call against that server, so if discovery reports "not yet bound", invoke any facade (e.g. `scalpel_workspace_health`) and re-run. The command body is per-language (server name templated in) but follows an identical shape across the [Supported languages](#supported-languages-as-of-v114) table — e.g. `/o2-scalpel-rust-dashboard`, `/o2-scalpel-python-dashboard`, `/o2-scalpel-markdown-dashboard`. |
+| `/o2-scalpel-<lang>-dashboard` | per-plugin (one per installed language) | Discovers the running `scalpel-<lang>` MCP server's dashboard port (`pgrep -f "start-mcp-server.*--server-name scalpel-<lang>"` cross-referenced against `lsof -iTCP -sTCP:LISTEN`, no `awk`, pinned to the `--server-name` CLI arg — kept per-language at v2.0 — so multiple scalpel-* servers don't collide) and opens it in the browser. **Lazy-bind caveat**: the engine binds the dashboard only after the first Scalpel tool call against that server, so if discovery reports "not yet bound", invoke any facade (e.g. `workspace_health`) and re-run. The command body is per-language (server name templated in) but follows an identical shape across the [Supported languages](#supported-languages-as-of-v114) table — e.g. `/o2-scalpel-rust-dashboard`, `/o2-scalpel-python-dashboard`, `/o2-scalpel-markdown-dashboard`. |
 | `/o2-scalpel-update` | engine-global | Force-refreshes the uvx-cached `o2-scalpel-engine` to the latest commit on `main` (`uvx --refresh --from git+https://github.com/o2alexanderfedin/o2-scalpel-engine.git scalpel --version`), **auto-kills stale `scalpel-*` MCP servers** so Claude Code respawns them on the next tool call from the freshly-refreshed cache (avoiding schema-mismatch errors), and writes the cleared-update marker to every installed plugin's `${CLAUDE_PLUGIN_DATA}/update-cache/installed-sha` (Claude Code's per-plugin scratch dir, auto-cleaned on uninstall). The body is byte-identical across all 52 plugins so Claude Code's plugin registry surfaces a single command. The legacy v1.11 cache at `~/.cache/o2-scalpel/` is removed on every run as a one-time migration cleanup. |
 
 ## Status-line update indicator

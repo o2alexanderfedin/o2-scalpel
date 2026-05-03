@@ -93,12 +93,14 @@ AI Hive(R). Never use "Claude" as the author identifier in commits.
 
 The MCP engine vendored at `vendor/serena/` exposes two tool families to the LLM:
 
-1. **Scalpel facades** — `scalpel_*` tools (e.g. `scalpel_extract`, `scalpel_rename`, `scalpel_split_file`, `scalpel_fix_lints`, `scalpel_organize_imports`, `scalpel_inline`, `scalpel_extract_section`). Their docstring opens with `PREFERRED:`. These are the **first-line surface** for refactor / rename / extract / inline / split / organize-imports / fix-lints work.
+1. **Scalpel facades** — task-shaped tools whose docstring opens with `PREFERRED:` (e.g. `extract`, `rename`, `split_file`, `fix_lints`, `imports_organize`, `inline`, `extract_section`). These are the **first-line surface** for refactor / rename / extract / inline / split / organize-imports / fix-lints work.
 2. **Serena upstream primitives** — `find_symbol`, `replace_symbol_body`, `insert_after_symbol`, `insert_before_symbol`, `safe_delete_symbol`, `search_for_pattern`, `find_referencing_symbols`, `get_symbols_overview`, `read_file`. Their docstrings do NOT open with `PREFERRED:` — that absence is the AST-fallback signal.
 
-**Routing rule:** for any refactor / rename / extract / inline / split / organize-imports / fix-lints task, reach for the matching `scalpel_*` facade FIRST. Only fall back to Serena primitives when (a) the facade returns `CAPABILITY_NOT_AVAILABLE`, (b) no facade exists for the operation, or (c) you need raw symbol-level navigation (find a definition, list a file's symbols).
+**Routing rule:** for any refactor / rename / extract / inline / split / organize-imports / fix-lints task, reach for the matching Scalpel facade FIRST. Only fall back to Serena primitives when (a) the facade returns `CAPABILITY_NOT_AVAILABLE`, (b) no facade exists for the operation, or (c) you need raw symbol-level navigation (find a definition, list a file's symbols).
 
-The `PREFERRED:` / `FALLBACK:` opener convention is enforced by drift-CI at `vendor/serena/test/serena/tools/test_docstring_convention.py`. The authoritative spec is `docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md` §5.
+The `PREFERRED:` / `FALLBACK:` opener convention is enforced by drift-CI at `vendor/serena/test/serena/tools/test_docstring_convention.py`. The authoritative routing spec is `docs/superpowers/specs/2026-04-29-lsp-feature-coverage-spec.md` §5.
+
+**v2.0 wire-name cleanup (spec `docs/superpowers/specs/2026-05-03-v2.0-mcp-wire-name-cleanup-spec.md`):** the canonical Scalpel tool name dropped its `scalpel_` prefix (so `scalpel_extract` → `extract`, etc.). Legacy `scalpel_<verb>` names remain available as deprecated aliases through v2.x and are removed in v2.1. The MCP wire format is now `mcp__plugin_o2-scalpel-<lang>_lsp__<verb>` instead of the v1.x `mcp__plugin_o2-scalpel-<lang>_scalpel-<lang>__scalpel_<verb>`.
 
 ---
 **Last Updated**: 2026-05-01

@@ -23,10 +23,17 @@ if [ ! -f "${MCP_JSON}" ]; then
   exit 65
 fi
 
-# Confirm the .mcp.json registers exactly one server with the expected name.
-SERVER_NAME=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); k=[k for k in d['mcpServers']]; assert len(k)==1, k; print(k[0])" "${MCP_JSON}")
-if [ "${SERVER_NAME}" != "scalpel-${LANG_ARG}" ]; then
-  echo "smoke: unexpected server name '${SERVER_NAME}' (want 'scalpel-${LANG_ARG}')" >&2
+# v2.0 wire-name cleanup (spec docs/superpowers/specs/2026-05-03-v2.0-mcp-wire-name-cleanup-spec.md
+# §5.2): the `.mcp.json` server JSON-key is the constant "lsp", but the
+# CLI ``--server-name`` arg is per-language ``scalpel-<lang>``. Confirm both.
+SERVER_KEY=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); k=[k for k in d['mcpServers']]; assert len(k)==1, k; print(k[0])" "${MCP_JSON}")
+if [ "${SERVER_KEY}" != "lsp" ]; then
+  echo "smoke: unexpected mcpServers JSON-key '${SERVER_KEY}' (want 'lsp')" >&2
+  exit 66
+fi
+CLI_SERVER_NAME=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); a=d['mcpServers']['lsp']['args']; print(a[a.index('--server-name')+1])" "${MCP_JSON}")
+if [ "${CLI_SERVER_NAME}" != "scalpel-${LANG_ARG}" ]; then
+  echo "smoke: unexpected --server-name CLI arg '${CLI_SERVER_NAME}' (want 'scalpel-${LANG_ARG}')" >&2
   exit 66
 fi
 
