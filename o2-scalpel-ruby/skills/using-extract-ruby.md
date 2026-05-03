@@ -1,0 +1,34 @@
+---
+name: using-extract-ruby
+description: When user asks to extract selection into a method or variable in Ruby, use extract
+type: skill
+---
+
+# Scalpel - extract (Ruby)
+
+Extract selection into a method or variable
+
+## When to use
+
+Invoke `extract` (language: **ruby**) when the user says any of:
+
+- "extract this"
+- "extract method"
+- "extract variable"
+
+> v2.0 wire-name cleanup: the legacy alias `scalpel_extract` continues to
+> work through v2.x and is removed in v2.1. Prefer the unprefixed name in
+> new prompts.
+
+## How it works
+
+The facade composes the following LSP primitives in order:
+
+1. `textDocument/codeAction[refactor.extract]`
+2. `workspace/applyEdit`
+
+## Tool call
+
+```json
+{"tool": "extract", "arguments": {"path": "<file>", "language": "ruby"}}
+```
