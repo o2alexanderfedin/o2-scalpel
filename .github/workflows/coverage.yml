@@ -48,18 +48,23 @@ jobs:
         working-directory: vendor/serena
         run: uv sync --extra dev
 
-      - name: Run vulture (informational, no fail in Phase A)
+      - name: Run vulture (Phase B+ — fails on new findings)
         working-directory: vendor/serena
         run: |
+          set -o pipefail
           uv run vulture \
             src/serena/tools \
             src/serena/refactoring \
             src/serena/plugins \
             src/solidlsp \
             --min-confidence 80 \
-            > vulture-report.txt 2>&1 || true
-          echo "Vulture findings: $(wc -l < vulture-report.txt) lines"
-          head -50 vulture-report.txt
+            | tee vulture-report.txt
+          if [ -s vulture-report.txt ]; then
+            echo "::error::Vulture found dead code in scoped modules. Phase B+ requires zero findings."
+            cat vulture-report.txt
+            exit 1
+          fi
+          echo "Vulture clean — 0 findings."
 
       - name: Run pytest with coverage (non-e2e)
         working-directory: vendor/serena
