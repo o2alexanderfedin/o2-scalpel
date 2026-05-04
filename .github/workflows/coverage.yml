@@ -1,0 +1,125 @@
+name: coverage
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "vendor/serena/src/**"
+      - "vendor/serena/test/**"
+      - "vendor/serena/pyproject.toml"
+      - "vendor/serena/uv.lock"
+      - ".github/workflows/coverage.yml"
+  push:
+    branches: [main, develop]
+    paths:
+      - "vendor/serena/src/**"
+      - "vendor/serena/test/**"
+      - "vendor/serena/pyproject.toml"
+      - "vendor/serena/uv.lock"
+      - ".github/workflows/coverage.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-coverage:
+    name: Coverage (non-e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (recursive submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0   # diff-cover needs full history
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.18"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install engine dev extras
+        working-directory: vendor/serena
+        run: uv sync --extra dev
+
+      - name: Run vulture (informational, no fail in Phase A)
+        working-directory: vendor/serena
+        run: |
+          uv run vulture \
+            src/serena/tools \
+            src/serena/refactoring \
+            src/serena/plugins \
+            src/solidlsp \
+            --min-confidence 80 \
+            > vulture-report.txt 2>&1 || true
+          echo "Vulture findings: $(wc -l < vulture-report.txt) lines"
+          head -50 vulture-report.txt
+
+      - name: Run pytest with coverage (non-e2e)
+        working-directory: vendor/serena
+        run: |
+          uv run pytest -n auto \
+            --cov \
+            --cov-branch \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov \
+            --cov-report=term \
+            --ignore=test/e2e \
+            --ignore=test/spikes \
+            -q
+
+      - name: Run diff-cover (informational, no fail in Phase A)
+        if: github.event_name == 'pull_request'
+        working-directory: vendor/serena
+        run: |
+          uv run diff-cover coverage.xml \
+            --compare-branch=origin/${{ github.base_ref }} \
+            --html-report diff-coverage.html \
+            > diff-coverage.txt 2>&1 || true
+          echo "=== diff-cover report ==="
+          cat diff-coverage.txt
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: |
+            vendor/serena/coverage.xml
+            vendor/serena/htmlcov/
+            vendor/serena/vulture-report.txt
+            vendor/serena/diff-coverage.html
+            vendor/serena/diff-coverage.txt
+          retention-days: 30
+
+      - name: Post coverage summary as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## Coverage report\n\n';
+            try {
+              const diffReport = fs.readFileSync('vendor/serena/diff-coverage.txt', 'utf8');
+              body += '### Diff coverage (informational — no gate in Phase A)\n\n```\n' + diffReport + '\n```\n\n';
+            } catch (e) {
+              body += '_diff-coverage.txt missing_\n\n';
+            }
+            try {
+              const vultureReport = fs.readFileSync('vendor/serena/vulture-report.txt', 'utf8');
+              const lines = vultureReport.split('\n').filter(l => l.trim()).length;
+              body += `### Vulture findings: ${lines} lines\n\n`;
+            } catch (e) {}
+            body += '_Full HTML report: see artifact `coverage-report-' + context.runId + '`._\n';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

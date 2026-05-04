@@ -25,6 +25,24 @@ Milestones since v0.2.0 (in order): v1.1 marketplace + persistent checkpoints, v
 
 The complete design report and all supporting research live under [`docs/`](docs/).
 
+## Coverage
+
+Test coverage is instrumented but **not gated** in Phase A — visibility only.
+On every PR touching `vendor/serena/`, the
+[`coverage.yml`](.github/workflows/coverage.yml) workflow runs the non-e2e
+test suite under `pytest-cov`, runs `vulture` for dead-code surface, and
+runs `diff-cover` against the PR's base branch. Results are uploaded as a
+30-day-retained artifact and summarized as a PR comment.
+
+Operational dashboard with current per-module baseline numbers:
+[`docs/coverage-strategy.md`](docs/coverage-strategy.md).
+
+Design authority:
+[`docs/superpowers/specs/2026-05-03-test-coverage-strategy-design.md`](docs/superpowers/specs/2026-05-03-test-coverage-strategy-design.md).
+
+Phase B (gap-fill) and Phase C (per-module gates) are separate plans
+triggered after Phase A baseline data informs the next steps.
+
 ## What it is
 
 A Claude Code plugin that exposes write/refactor operations from any installed Language Server Protocol server as MCP tools, complementing Claude Code's built-in (read-only) `LSP` umbrella tool.
