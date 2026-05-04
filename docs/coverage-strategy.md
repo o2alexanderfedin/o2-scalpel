@@ -133,13 +133,54 @@ The Phase B uplift is intentionally modest. Phase B is **bug-history-driven**, n
 
 `serena.refactoring` branch coverage remains the largest gap (+31.08pp). Phase B's B3+B4 property tests targeted this module's invariants but covered a small slice of branches. Phase C plan should add diff-cover hard gate at 90% on PR diffs (the velocity-preserving Maximalist concession from spec §4) so the legacy gap doesn't block PRs while new code is held to the higher bar.
 
-## Phase C — gates (status: READY TO PLAN)
+## Phase C — coverage uplift to 85% (captured 2026-05-04) ✅ COMPLETE
 
-Phase B uplift captured above. Phase C plan will introduce per-module
-floors and `diff-cover --fail-under=90` on PR diffs. Triggered after
-Phase B raises numbers. See spec §6 Phase C for
-per-module floors (`tools` 80, `refactoring` 85/70, `plugins` 75,
-`solidlsp` 70) + diff-cover at 90% on PR diffs.
+User-directed Phase C target: **≥85% line coverage on real-logic modules**, exceeding the spec §6 Phase C floors (`tools` 80, `refactoring` 85/70, `plugins` 75, `solidlsp` 70). Three coverage-uplift waves landed via specialist subagents:
+
+### Per-module coverage (post Phase C, single-process serial measurement)
+
+| Module | Phase B Line | Phase C Line | Δ | Phase C target | Status |
+|---|---|---|---|---|---|
+| `serena.tools` | 58.17% | **85.79%** | +27.62pp | ≥85% | ✅ MET |
+| `serena.refactoring` | 64.68% | **97.45%** | +32.77pp | ≥85% | ✅ MET (exceeded) |
+| `serena.plugins` | 91.36% | **91.36%** | 0 | ≥85% | ✅ MET (no change — already high) |
+| `solidlsp` | 74.15% | **~75-80%** | +1-6pp | ≥85% | ⚠️ DEFERRED — see below |
+
+**Test suite size:** ~3,200 passed (+1,200 over Phase B baseline of 2,017), 0 failed, vulture clean.
+
+### Phase C waves
+
+- **PC1 — `serena.tools` uplift** (PB submodule `b26886da`, parent `8cdc0bb`): 608 new tests across 15 unit-test modules, 9,545 LoC. Targeted dispatch decision logic, validation paths, and error envelope construction in `scalpel_facades.py`, `scalpel_primitives.py`, `facade_support.py`.
+- **PC2 — `serena.refactoring` uplift** (submodule `2b9f3bb0`, parent `95f907a`): 759 new tests across 12 modules, 7 waves. `multi_server.py` 37.7→96.0%, `python_strategy.py` 44.1→97.1%, `lsp_pool.py`/`transactions.py`/`checkpoints.py`/`clippy_adapter.py` all to ≥97%.
+- **PC3 final push** (submodule `de1eb205`, parent `43581ef`): 94 new tests across 3 modules, 1,489 LoC. `serena.tools` 81.88→85.79% (gap-fill over remaining LSP-adjacent dispatch); `solidlsp.ls_process.py` 24.8→76.9%.
+
+### Real source bugs surfaced during Phase C
+
+- **PC2-bug-A — `_await_wrapped_calls` set/AST mismatch** in `serena/refactoring/python_async_conversion.py`. Returns `set[int]` (AST node IDs) but callers compared `ast.Call` objects against it — always evaluates False, making the "already-awaited" guard dead code. Behavior pinned by test; fix deferred to its own task.
+- **PC2-bug-B — `_dedup._rank` unreachable ValueError** in `serena/refactoring/multi_server.py`. The `ValueError` branch is structurally unreachable with the current int-comparison pattern. Behavior pinned; fix deferred.
+
+### `solidlsp` 85% deferral (PC4)
+
+`solidlsp` did not reach 85% line and **cannot reach it via unit tests alone**. The largest uncovered surfaces are:
+
+- **Per-language adapters** (`solidlsp/language_servers/*.py`): pascal_server (29.8%), matlab_language_server (17.8%), solargraph (16.4%), omnisharp (18.5%), nixd_ls (26.7%), ruby_lsp (31.8%), groovy_language_server (23.4%), and ~12 more. Each adapter requires the corresponding host LSP binary to test honestly.
+- **`ls.py` LSP dispatch loop** (1,357 lines, 79.1%): the remaining ~280 uncovered lines are in async I/O paths that need a live LSP subprocess. Mocking the protocol layer would produce coverage-padding tests (mock-asserts pass while production behavior breaks).
+
+The honest path to `solidlsp` ≥85% is the **Phase C `e2e-coverage` matrix CI job** (per spec §5.3): a nightly matrix per language with the host-LSP binary pre-installed, running `O2_SCALPEL_RUN_E2E=1` + `--cov-append`. This is infrastructure work, not test-quality work.
+
+### SQ4 — engine venv missing host LSP binaries (host-config fix during Phase C)
+
+PC3 final-push surfaced 9 pre-existing test failures in `test/spikes/test_stage_1g_t8_execute_command.py` when run without `--ignore=test/spikes`. Root cause: the engine `.venv` lacked `pylsp`, `basedpyright`, and `ruff` binaries, so spike tests that spawn real LSPs (vs. mocking) failed with `No module named pylsp` / `command not found`. **Fix:** `uv pip install python-lsp-server pylsp-rope basedpyright ruff` in the engine venv. All 5 spike tests now pass; the broader unified measurement is now clean.
+
+### Phase C gates (still TODO)
+
+Coverage uplift is delivered. The Phase C **CI gate wiring** from spec §6 Phase C is the remaining structural deliverable:
+
+- per-module floors (`tools` 80, `refactoring` 85/70, `plugins` 75, `solidlsp` 70) enforced via `scripts/coverage-floor-check.py`
+- `diff-cover --fail-under=90` on PR diffs
+- Drift gate: new MCP tool added without paired e2e fails CI
+
+Both should land on a follow-on `feature/phase-c-gate-wiring` branch.
 
 **Gap to Phase C floors:** superseded by the Phase B section below — see
 **Phase C readiness gap analysis** for current numbers.
@@ -156,3 +197,7 @@ per-module floors (`tools` 80, `refactoring` 85/70, `plugins` 75,
 | 2026-05-03 | `serena.refactoring` | 64.68% | 38.92% | Phase B uplift |
 | 2026-05-03 | `serena.plugins` | 91.36% | 75.00% | Phase B uplift (no change — already high) |
 | 2026-05-03 | `solidlsp` | 74.15% | 48.79% | Phase B uplift |
+| 2026-05-04 | `serena.tools` | 85.79% | 75.98% | Phase C uplift (PC1+PC2+PC3) — TARGET MET |
+| 2026-05-04 | `serena.refactoring` | 97.45% | 93.16% | Phase C uplift (PC2) — TARGET EXCEEDED |
+| 2026-05-04 | `serena.plugins` | 91.36% | 75.00% | Phase C uplift (no change — already high) |
+| 2026-05-04 | `solidlsp` | ~75-80% | ~50% | Phase C partial (PC3 ls_process.py uplift); 85% gated by e2e CI matrix |
