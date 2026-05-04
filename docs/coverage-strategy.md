@@ -102,7 +102,7 @@ The Phase B uplift is intentionally modest. Phase B is **bug-history-driven**, n
 - ✅ **B2.2** (PB13) — `test/integration/test_b2_split_file_python_outcome.py` — `SplitFileTool` Python arm; 2 tests PASS (rope-bridge mockable; no host LSP needed).
 - ✅ **B2.3** (PB14) — `test/integration/test_b2_dry_run_compose_outcome.py` — auto mode + manual-mode counter-test; 2 tests PASS.
 - ✅ **B3** (PB8) — `test/property/test_rollback_round_trip.py` — `apply(edit) ; apply(inverse)` restores file bytes. 30 hypothesis examples PASS. v1.7 fix verified.
-- ✅ **B4** (PB7) — `test/property/test_workspace_edit_idempotence.py` — `apply(edit) ; apply(edit) == apply(edit)`. **Surfaced a real bug** (zero-width insertion on empty file → doubled bytes on retry); test marked `xfail(strict=True)`. Side-quest SQ2 tracks the applier fix.
+- ✅ **B4** (PB7 + SQ2 fix) — `test/property/test_workspace_edit_idempotence.py` — `apply(edit) ; apply(edit) == apply(edit)`. Surfaced a real applier bug (zero-width insertion on empty file → doubled bytes on retry); SQ2 fix landed: idempotence guard added in `_splice_text_edit` + newline-translation fix in `_apply_text_edits_to_file_uri`. Test PASSES unconditionally (xfail removed).
 - ✅ **B5** (PB9 + PB10) — `test/property/test_dynamic_capability_merge.py` — 4 properties: idempotence, order-invariance, server-isolation, monotonicity. All PASS.
 - ✅ **B6** (PB3 + PB4 + PB5 + PB6) — vulture disposition complete:
   - `MemoriesManager`: annotated keep (false-positive — string-annotation forward-ref).
@@ -113,7 +113,9 @@ The Phase B uplift is intentionally modest. Phase B is **bug-history-driven**, n
 
 ### Side-quests surfaced during Phase B
 
-- **SQ2 — WorkspaceEdit applier zero-width-insertion bug** (deferred). PB7 hypothesis property surfaced it: `_apply_workspace_edit_to_disk` doubles inserted content on second apply when `start == end` (zero-width insertion) on empty file. Reproducer `('', (0,0,0,0,'0'))` → first apply produces `b'0'`, second apply produces `b'00'`. Test xfail-strict; if applier is fixed, CI surfaces XPASS to prompt removal of marker. Fix candidates: detect already-applied state OR add LSP `documentChanges` `version` guard.
+- **SQ2 — WorkspaceEdit applier idempotence bug** ✅ FIXED. PB7 hypothesis property surfaced two related bugs: (a) `_splice_text_edit` doubled inserted content on second apply for zero-width insertions on empty file (`('', (0,0,0,0,'0'))` → `b'0'` then `b'00'`); (b) `_apply_text_edits_to_file_uri` did Python universal-newline translation on read, silently coercing `\r` → `\n` and shifting offsets. Both fixed: idempotence guard in `_splice_text_edit` (skip splice if `source[start:start+len(new_text)] == new_text` and the slice is consumed) + `newline=""` on `read_text`/`write_text`. Test PASSES unconditionally now; xfail-strict marker removed.
+
+- **SQ3 — Phase B adversarial review fixes** ✅ COMPLETE. Skeptic synthesis surfaced 4 in-test polish items + 1 dashboard cleanup: (a) PB11 wraps `python_coordinator.find_symbol_range` with a spy and asserts `call_count >= 1` — guards against `dry_run=True` short-circuiting upstream of the resolver; (b) PB14 (B2.3) asserts the patched `_FACADE_DISPATCH` fake was called — guards against auto mode bypassing dispatch; (c) hypothesis `max_examples` bumped 30 → 50 in B3 + B4 to match the conftest `ci` profile; (d) stale Phase A "Gap to Phase C floors" table replaced with a pointer to the Phase B section. PB15 generator-vs-canonical investigation: v2.0 commit `85b324db` was an INTENTIONAL change per spec §5.2 of the wire-name-cleanup spec — canonical regen was correct.
 
 ### Deferred to Phase C (per spec §5.3)
 
