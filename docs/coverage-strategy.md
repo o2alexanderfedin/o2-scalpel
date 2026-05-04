@@ -139,19 +139,8 @@ Phase B raises numbers. See spec §6 Phase C for
 per-module floors (`tools` 80, `refactoring` 85/70, `plugins` 75,
 `solidlsp` 70) + diff-cover at 90% on PR diffs.
 
-**Gap to Phase C floors (from Phase A baseline):**
-
-| Module | Phase A line | Phase C line floor | Gap |
-|---|---|---|---|
-| `serena.tools` | 55.65% | 80% | **+24.35pp needed** |
-| `serena.refactoring` | 64.18% | 85% | **+20.82pp needed** |
-| `serena.plugins` | 91.36% | 75% | already over (+16.36pp headroom) |
-| `solidlsp` | 74.14% | 70% | already over (+4.14pp headroom) |
-
-`serena.refactoring` also needs branch coverage to climb from 38.80% to
-70% (+31.20pp) — the largest single gap. Phase B's B3 (rollback inverse
-applier property test) and B4 (WorkspaceEdit applier idempotence) target
-this module directly and should close the bulk of that branch gap.
+**Gap to Phase C floors:** superseded by the Phase B section below — see
+**Phase C readiness gap analysis** for current numbers.
 
 ## Ratchet history
 
