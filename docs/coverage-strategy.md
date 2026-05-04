@@ -54,11 +54,11 @@ absolute precision in this phase).
 
 Full list:
 
-| File:line | Finding | Confidence |
-|---|---|---|
-| `src/serena/tools/tools_base.py:17` | unused import `MemoriesManager` | 90% |
-| `src/serena/tools/tools_base.py:24` | unused import `SerenaAgent` | 90% |
-| `src/solidlsp/language_servers/typescript_language_server.py:33` | unused variable `uid` | 100% |
+| File:line | Finding | Confidence | Phase B disposition (preliminary) |
+|---|---|---|---|
+| `src/serena/tools/tools_base.py:17` | unused import `MemoriesManager` | 90% | **FALSE POSITIVE — keep.** Imported at runtime (line 17, not `TYPE_CHECKING`-guarded), used as forward-reference string `"MemoriesManager"` in return-type annotation at line 48. Vulture cannot see through string annotations. Phase B should annotate inline as `# vulture: keep — string-annotation forward-ref; runtime import required`. |
+| `src/serena/tools/tools_base.py:24` | unused import `SerenaAgent` | 90% | Likely deletable. Imported under `if TYPE_CHECKING:` at line 23, so removing it has no runtime effect. Phase B should verify no `"SerenaAgent"` string annotations reference it before deletion. |
+| `src/solidlsp/language_servers/typescript_language_server.py:33` | unused variable `uid` | 100% | Straightforwardly deletable. Phase B can delete as part of B6. |
 
 Reproduce locally:
 
@@ -84,9 +84,16 @@ decides delete-vs-annotate per-finding (spec §6 Phase B row B6).
 
 All Phase B inputs are in place:
 - ✓ Baseline numbers captured (table above)
-- ✓ Vulture findings catalogued (3 entries)
+- ✓ Vulture findings catalogued (3 entries) with preliminary disposition
 - ✓ `coverage.xml` + `htmlcov/` artifacts produced (live in `vendor/serena/`)
-- ✓ CI workflow `coverage.yml` instrumented and locally verified
+- ✓ CI workflow `coverage.yml` instrumented and locally verified (Phase A `fast-coverage` job only)
+
+**Deferred CI jobs (spec §5.3) — to be added in Phase B/C:**
+- `e2e-coverage` job — nightly matrix per language with host-binary
+  pre-installed; pulls in `O2_SCALPEL_RUN_E2E=1` runs and `--cov-append`s
+  e2e coverage onto the fast-coverage baseline. Phase C deliverable.
+- `mutation` job — nightly `mutmut run --paths-to-mutate=…/refactoring/`.
+  Dep added in Phase B; activated nightly in Phase C.
 
 Next step: invoke `superpowers:writing-plans` with input = spec §6 Phase B
 + this dashboard's captured numbers. The plan will assign concrete test

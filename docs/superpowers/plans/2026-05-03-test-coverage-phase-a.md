@@ -1,5 +1,7 @@
 # Test Coverage — Phase A (Baseline + Visibility) Implementation Plan
 
+**STATUS:** COMPLETE (executed 2026-05-03 via `superpowers:subagent-driven-development`). All 10 tasks (T1–T10) plus side-quest SQ1 landed on `feature/test-coverage-strategy`. See `docs/coverage-strategy.md` for captured baseline numbers.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wire `pytest-cov` + `vulture` + `diff-cover` into the `vendor/serena/` engine; capture per-module coverage baseline numbers + vulture findings; publish them as a CI artifact on every PR; commit a living `docs/coverage-strategy.md` with the baseline. **No CI gate, no fail-on-regression** — visibility only. Phase B (gap-fill) and Phase C (gates) are separate plans triggered after Phase A's actual artifact reveals real numbers.

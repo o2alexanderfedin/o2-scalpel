@@ -1,7 +1,7 @@
 # Test coverage strategy design
 
 **Date:** 2026-05-03
-**Status:** DRAFT — pending user approval before plan-phase
+**Status:** ACTIVE — Phase A complete (2026-05-03); Phase B + C plans pending
 **Milestone:** v2.x (additive; introduced phase-wise, no breaking changes)
 **Replaces:** none
 **Related:**
