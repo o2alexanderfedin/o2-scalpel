@@ -80,15 +80,37 @@ decides delete-vs-annotate per-finding (spec §6 Phase B row B6).
   positions. Tests updated to use new 0-indexed coordinates. Surfaced by
   T3 baseline run; would have remained latent in pre-Phase-A CI matrix.
 
-## Phase B — gap-fill (status: NOT STARTED)
+## Phase B — gap-fill (status: READY TO PLAN)
 
-Triggered after Phase A baseline is committed. See spec §6 Phase B for
-the 7-row bug-history hit list (B1–B7). A separate plan
-(`docs/superpowers/plans/<date>-test-coverage-phase-b.md`) will be drafted
-once this baseline is in place.
+All Phase B inputs are in place:
+- ✓ Baseline numbers captured (table above)
+- ✓ Vulture findings catalogued (3 entries)
+- ✓ `coverage.xml` + `htmlcov/` artifacts produced (live in `vendor/serena/`)
+- ✓ CI workflow `coverage.yml` instrumented and locally verified
+
+Next step: invoke `superpowers:writing-plans` with input = spec §6 Phase B
++ this dashboard's captured numbers. The plan will assign concrete test
+bodies for B1–B7 informed by the actual coverage gaps the Phase A
+artifact reveals.
 
 The 3 catalogued vulture findings above feed directly into B6
 (delete-or-annotate decision).
+
+**Phase B planning prompt template:**
+
+> Continue the test coverage strategy from spec
+> `docs/superpowers/specs/2026-05-03-test-coverage-strategy-design.md`.
+>
+> Phase A is complete (see `docs/coverage-strategy.md` for current
+> numbers). Now plan Phase B: the 7-row bug-history hit list B1–B7
+> (spec §6 Phase B). Each row needs concrete test bodies, file
+> locations, hypothesis profiles, and the discipline rule (every Phase
+> B test starts with `# regression: <bug-id>`).
+>
+> The 3 vulture findings catalogued in Phase A feed B6 (delete-or-
+> annotate decision).
+
+Save Phase B plan to: `docs/superpowers/plans/<YYYY-MM-DD>-test-coverage-phase-b.md`.
 
 ## Phase C — gates (status: NOT STARTED)
 
