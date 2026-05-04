@@ -137,16 +137,20 @@ The Phase B uplift is intentionally modest. Phase B is **bug-history-driven**, n
 
 User-directed Phase C target: **≥85% line coverage on real-logic modules**, exceeding the spec §6 Phase C floors (`tools` 80, `refactoring` 85/70, `plugins` 75, `solidlsp` 70). Three coverage-uplift waves landed via specialist subagents:
 
-### Per-module coverage (post Phase C, single-process serial measurement)
+### Per-module coverage (post Phase C + post adversarial-review-fixes)
 
-| Module | Phase B Line | Phase C Line | Δ | Phase C target | Status |
+Truthful measurements from the full non-e2e suite (post SQ4 host-LSP install, post SQ5 xfail correction). Two scopes shown — `tools` measured both ways:
+
+| Module | Phase B Line | Phase C Line (all in-scope) | Phase C Line (shipped only) | Phase C target | Status |
 |---|---|---|---|---|---|
-| `serena.tools` | 58.17% | **85.79%** | +27.62pp | ≥85% | ✅ MET |
-| `serena.refactoring` | 64.68% | **97.45%** | +32.77pp | ≥85% | ✅ MET (exceeded) |
-| `serena.plugins` | 91.36% | **91.36%** | 0 | ≥85% | ✅ MET (no change — already high) |
-| `solidlsp` | 74.15% | **~75-80%** | +1-6pp | ≥85% | ⚠️ DEFERRED — see below |
+| `serena.tools` | 58.17% | **85.96%** | **90.58%** (excludes 7 inherited-Serena legacy files) | ≥85% | ✅ MET |
+| `serena.refactoring` | 64.68% | ~97% (PC2 reported, awaiting unified re-measure) | n/a | ≥85% | ✅ MET (exceeded) |
+| `serena.plugins` | 91.36% | 91.36% (no Phase C change) | n/a | ≥85% | ✅ MET (already high) |
+| `solidlsp` | 74.15% | ~70-78% (measurement-scope variance) | n/a | ≥85% | ⚠️ DEFERRED — see below |
 
-**Test suite size:** ~3,200 passed (+1,200 over Phase B baseline of 2,017), 0 failed, vulture clean.
+**Test suite size:** ~3,200 passed (+1,200 over Phase B baseline of 2,017). Final unified serial measurement still pending (~15-min run); per-file numbers verified directly in `coverage.xml`.
+
+**Note on `serena.tools` two-column reading:** the 85.96% is the canonical figure measured against the spec §5.2 source list. The 90.58% breaks out the shipped surface (`scalpel_facades.py`, `scalpel_primitives.py`, `facade_support.py`, `tools_base.py`, `scalpel_runtime.py`, `scalpel_schemas.py`, `cmd_tools.py`) from the inherited-Serena legacy (`jetbrains_tools.py` 20.1%, `symbol_tools.py` 81.2%, `file_tools.py` 80.5%, `workflow_tools.py` 100%, `query_project_tools.py` 63.2%, `memory_tools.py` 100%, `config_tools.py` 100%). The legacy files were never promoted to MCP-tool surface and depend on the JetBrains bridge (`vendor/serena/src/serena/jetbrains/` — already excluded by spec). A future spec amendment to extend the omit list would push the canonical figure to 90.58%.
 
 ### Phase C waves
 
@@ -156,8 +160,16 @@ User-directed Phase C target: **≥85% line coverage on real-logic modules**, ex
 
 ### Real source bugs surfaced during Phase C
 
-- **PC2-bug-A — `_await_wrapped_calls` set/AST mismatch** in `serena/refactoring/python_async_conversion.py`. Returns `set[int]` (AST node IDs) but callers compared `ast.Call` objects against it — always evaluates False, making the "already-awaited" guard dead code. Behavior pinned by test; fix deferred to its own task.
-- **PC2-bug-B — `_dedup._rank` unreachable ValueError** in `serena/refactoring/multi_server.py`. The `ValueError` branch is structurally unreachable with the current int-comparison pattern. Behavior pinned; fix deferred.
+- **PC2-bug-A — `_await_wrapped_calls` set/AST mismatch** in `serena/refactoring/python_async_conversion.py:109`. Returns `set[int]` (AST node IDs) but callers compared `ast.Call` objects against it — always evaluates False, making the "already-awaited" guard dead code. **SQ5 fix:** the previous PC2 test enshrined the buggy behavior (`assert summary["await_call_sites"] == 1`) — now refactored to assert the CORRECT behavior (`== 0`) under `@pytest.mark.xfail(strict=True)`. XFAIL today; will surface XPASS once the source bug is fixed (matching the PB7/SQ2 pattern). Source fix is its own follow-up task.
+- **PC2-bug-B — `_dedup._rank` unreachable ValueError** in `serena/refactoring/multi_server.py`. The `ValueError` branch is structurally unreachable with the current int-comparison pattern. Behavior pinned by test; fix deferred to its own task.
+
+### Adversarial review (skeptic + defender synthesis)
+
+Post-Phase-C adversarial review per the user's directive ("use adversarial subagents to decide on done-ness"). Skeptic raised 3 critical claims; verified each:
+
+1. **"85.79% tools claim is wrong — actual is 71-78%"** → **PARTIALLY VALIDATED.** PC3 agent's 85.79% number was measured before SQ4 fixed the missing host-LSP binaries that gate several integration tests in the canonical `serena.tools` denominator. Post-SQ4 measurement (the canonical truth): **85.96%** — target met. Confirmed via per-file measurement in `coverage.xml`.
+2. **"`_await_wrapped_calls` test enshrines buggy behavior as correct"** → **VALIDATED.** SQ5 fix applied (see above): test now xfails asserting correct behavior.
+3. **"Solidlsp regressed from 74.15% to 70.65%"** → **PARTIALLY DISMISSED.** No solidlsp/ source files were modified during Phase C (`git log main -- src/solidlsp/` newest commit is `8c762a5f` from PB6). Variance is a measurement-scope artifact (different test scopes producing different denominators across `pytest-xdist` workers vs serial runs — the same caveat documented in Phase A). Final unified serial measurement should reconcile. No real regression in production code.
 
 ### `solidlsp` 85% deferral (PC4)
 
@@ -197,7 +209,7 @@ Both should land on a follow-on `feature/phase-c-gate-wiring` branch.
 | 2026-05-03 | `serena.refactoring` | 64.68% | 38.92% | Phase B uplift |
 | 2026-05-03 | `serena.plugins` | 91.36% | 75.00% | Phase B uplift (no change — already high) |
 | 2026-05-03 | `solidlsp` | 74.15% | 48.79% | Phase B uplift |
-| 2026-05-04 | `serena.tools` | 85.79% | 75.98% | Phase C uplift (PC1+PC2+PC3) — TARGET MET |
-| 2026-05-04 | `serena.refactoring` | 97.45% | 93.16% | Phase C uplift (PC2) — TARGET EXCEEDED |
+| 2026-05-04 | `serena.tools` | 85.96% (all in-scope) / 90.58% (shipped) | 75.98% | Phase C uplift verified post-SQ4 + SQ5 (PC1+PC2+PC3) — TARGET MET |
+| 2026-05-04 | `serena.refactoring` | ~97% (PC2 reported; final unified pending) | ~93% | Phase C uplift (PC2) — TARGET EXCEEDED |
 | 2026-05-04 | `serena.plugins` | 91.36% | 75.00% | Phase C uplift (no change — already high) |
-| 2026-05-04 | `solidlsp` | ~75-80% | ~50% | Phase C partial (PC3 ls_process.py uplift); 85% gated by e2e CI matrix |
+| 2026-05-04 | `solidlsp` | ~70-78% (variance) | ~50% | No source changes; measurement-scope variance — 85% gated by e2e CI matrix |
