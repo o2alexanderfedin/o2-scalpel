@@ -13,7 +13,7 @@ SHELL := /bin/bash
 
 OUT ?= .
 LANGUAGES ?= rust python markdown typescript go cpp java lean smt2 prolog problog csharp clojure crystal elixir erlang haskell haxe ocaml perl powershell ruby systemverilog \
-             al ansible bash dart elm fortran fsharp groovy hlsl json julia kotlin lua luau matlab msl nix pascal php r rego scala solidity swift terraform toml vue yaml zig
+             ada al angular ansible bash bsl dart elm fortran fsharp groovy hlsl html json julia kotlin lua luau matlab msl nix pascal php r rego scala scss solidity swift terraform toml vue yaml zig
 
 PYBIN := vendor/serena/.venv/bin
 GEN := PATH="$(PYBIN):$$PATH" o2-scalpel-newplugin
